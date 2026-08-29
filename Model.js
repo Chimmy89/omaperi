@@ -129,6 +129,67 @@ function displayValue(control) {
   return ""
 }
 
+// Compact tab labels. A kind name reads better than a product string
+// ("Mouse", not "Razer HyperPolling Wireless Dongle"), but two devices of the
+// same kind would then be indistinguishable, so fall back to the real name
+// only when the kind is not unique.
+var KIND_LABEL = {
+  headset: "Headset",
+  mouse: "Mouse",
+  keyboard: "Keyboard",
+  webcam: "Webcam",
+  motherboard: "Board",
+  memory: "RAM",
+  gpu: "GPU",
+  other: "Device"
+}
+
+function kindLabel(kind) {
+  return KIND_LABEL[kind] || "Device"
+}
+
+function shortenName(name) {
+  // Vendors love repeating themselves: "Trust USB Camera: Trust USB Cam".
+  var s = String(name || "").split(":")[0].trim()
+  return s.length > 20 ? s.substring(0, 19) + "\u2026" : s
+}
+
+function kindIsUnique(devices, kind) {
+  var n = 0
+  for (var i = 0; i < (devices || []).length; i++) {
+    if (devices[i].kind === kind) n++
+  }
+  return n <= 1
+}
+
+function tabLabel(devices, device) {
+  var base = kindIsUnique(devices, device.kind)
+             ? kindLabel(device.kind)
+             : shortenName(device.name)
+  var label = glyphFor(device.kind) + "  " + base
+  if (device.battery && typeof device.battery.level === "number" && device.battery.level >= 0) {
+    label += "  " + device.battery.level + "%"
+  }
+  return label
+}
+
+// Keep a selection pointing at something that still exists, without losing the
+// user's pick just because a poll reordered the list.
+function resolveSelection(devices, currentId) {
+  if (!devices || !devices.length) return ""
+  for (var i = 0; i < devices.length; i++) {
+    if (devices[i].id === currentId) return currentId
+  }
+  return devices[0].id
+}
+
+function findDevice(devices, id) {
+  for (var i = 0; i < (devices || []).length; i++) {
+    if (devices[i].id === id) return devices[i]
+  }
+  return null
+}
+
 var SWATCHES = [
   "#ff0033", "#ff7700", "#ffdd00", "#00ff88",
   "#00ddff", "#3355ff", "#aa44ff", "#ffffff"

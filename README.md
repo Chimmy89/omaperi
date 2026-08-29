@@ -24,6 +24,11 @@ v4l2-ctl --list-ctrls    →  ┘
 | Anything OpenRGB sees | `openrgb` | mode, colour |
 | Webcams | `v4l2-ctl` | brightness, contrast, white balance, exposure, power-line frequency |
 
+The panel is tabbed, one tab per device, in the style of the mail and teslamate
+widgets: a glyph, a short kind name ("Mouse", not the product string), and the
+battery where there is one. A device that cannot report right now still gets a
+tab, dimmed.
+
 Only what a device really has appears. A headset without lights shows no light
 switch; a mouse whose dongle exposes no lighting says so instead of offering a
 control that does nothing.

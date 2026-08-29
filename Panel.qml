@@ -35,6 +35,11 @@ Panel {
   property var devices: []
   property var backends: []
   property string lastError: ""
+  property string selectedId: ""
+
+  readonly property var selectedDevice: Model.findDevice(devices, selectedId)
+  readonly property color selectedFill: bar ? Style.selectedFillFor(bar.foreground, Color.accent)
+                                            : "transparent"
 
   readonly property var batteryEntries: Model.batteryEntries(devices)
 
@@ -70,6 +75,7 @@ Panel {
     root.lastError = ""
     root.devices = parsed.devices
     root.backends = parsed.backends
+    root.selectedId = Model.resolveSelection(parsed.devices, root.selectedId)
   }
 
   Process {
@@ -178,48 +184,88 @@ Panel {
           wrapMode: Text.WordWrap
         }
 
-        // ---------- one block per device ----------
-        Repeater {
-          model: root.devices
+        // ---------- one tab per device ----------
+        Flow {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.devices.length > 0
 
-          delegate: Column {
-            id: deviceBlock
-            required property var modelData
-            width: column.width
-            spacing: Style.space(8)
+          Repeater {
+            model: root.devices
 
-            PanelSectionHeader {
-              width: parent.width
-              text: Model.glyphFor(deviceBlock.modelData.kind) + "  "
-                    + deviceBlock.modelData.name
-                    + (deviceBlock.modelData.battery
-                       ? "  ·  " + deviceBlock.modelData.battery.level + "%"
-                         + (deviceBlock.modelData.battery.charging ? " charging" : "")
-                       : "")
+            delegate: Rectangle {
+              id: tab
+              required property var modelData
+              width: tabLabel.implicitWidth + Style.space(20)
+              height: Style.space(32)
+              radius: Style.cornerRadius
+              color: tab.modelData.id === root.selectedId ? root.selectedFill : "transparent"
+              border.width: 1
+              border.color: Color.popups.border
+
+              Text {
+                id: tabLabel
+                anchors.centerIn: parent
+                text: Model.tabLabel(root.devices, tab.modelData)
+                color: root.barForeground
+                // A device that cannot report right now still gets a tab, but
+                // dimmed, so the panel does not pretend it is live.
+                opacity: tab.modelData.note ? 0.55 : 1.0
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.selectedId = tab.modelData.id
+              }
             }
+          }
+        }
 
-            Text {
-              width: parent.width
-              visible: !!deviceBlock.modelData.note
-              text: deviceBlock.modelData.note || ""
-              color: Color.foreground
-              opacity: 0.6
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
+        // ---------- the selected device ----------
+        Column {
+          id: deviceBlock
+          visible: root.selectedDevice !== null
+          width: column.width
+          spacing: Style.space(8)
 
-            // ---------- one row per control, chosen by type ----------
-            Repeater {
-              model: deviceBlock.modelData.controls
+          // Never null, so the bindings below stay valid for the one frame
+          // between a poll clearing the list and the tab strip catching up.
+          readonly property var device: root.selectedDevice || ({ controls: [] })
 
-              delegate: Column {
-                id: ctlBlock
-                required property var modelData
-                readonly property var ctl: ctlBlock.modelData
-                readonly property string deviceId: deviceBlock.modelData.id
-                width: deviceBlock.width
-                spacing: Style.space(4)
+          PanelSectionHeader {
+            width: parent.width
+            text: (deviceBlock.device.name || "")
+                  + (deviceBlock.device.battery
+                     ? "  ·  " + deviceBlock.device.battery.level + "%"
+                       + (deviceBlock.device.battery.charging ? " charging" : "")
+                     : "")
+          }
+
+          Text {
+            width: parent.width
+            visible: !!deviceBlock.device.note
+            text: deviceBlock.device.note || ""
+            color: Color.foreground
+            opacity: 0.6
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          // ---------- one row per control, chosen by type ----------
+          Repeater {
+            model: deviceBlock.device.controls
+
+            delegate: Column {
+              id: ctlBlock
+              required property var modelData
+              readonly property var ctl: ctlBlock.modelData
+              readonly property string deviceId: root.selectedId
+              width: deviceBlock.width
+              spacing: Style.space(4)
 
                 // Label row for the types that do not carry their own label.
                 Item {
@@ -324,7 +370,6 @@ Panel {
               }
             }
           }
-        }
 
         // ---------- backends that are not running ----------
         Text {
