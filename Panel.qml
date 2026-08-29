@@ -167,6 +167,11 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(400))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
+    // No key handling here on purpose: the bar is a layer-shell surface with
+    // WlrLayershell.keyboardFocus = None (Bar.qml:1168), and this card is an
+    // xdg-popup parented to it, so it can never receive a key event. Keyboard
+    // support would mean being a layer-shell surface of our own, the way
+    // KeyboardPanel is -- see README.
     Item {
       id: keyCatcher
       anchors.fill: parent

@@ -88,6 +88,12 @@ def remember(device_id, key, value):
     save_state(state)
 
 
+def remember_global(key, value):
+    state = load_state()
+    state[key] = value
+    save_state(state)
+
+
 def control(key, label, ctype, **kw):
     c = {"key": key, "label": label, "type": ctype}
     c.update({k: v for k, v in kw.items() if v is not None})
@@ -123,15 +129,39 @@ def hs_available():
     return True, None
 
 
+HS_STATIC_KEY = "_headset_static"
+
+
 def hs_devices():
-    rc, out, _ = run(["headsetcontrol", "-o", "json"])
-    if rc != 0 or not out.strip():
-        return []
-    try:
-        doc = json.loads(out)
-    except ValueError:
-        return []
-    return [hs_device(d) for d in doc.get("devices", [])]
+    """Enumerate headsets without paying for a powered-off one every poll.
+
+    `headsetcontrol -o json` blocks for 4-5 seconds when the headset is off --
+    the battery read is what waits. Everything else it returns (name, ids,
+    capabilities, EQ presets) is fixed for a given headset, so remember it and
+    fall back to it on timeout. A powered-off headset then costs the timeout
+    once, not on every poll.
+    """
+    known = load_state().get(HS_STATIC_KEY)
+    rc, out, _ = run(["headsetcontrol", "-o", "json"], timeout=2 if known else 12)
+
+    if rc == 0 and out.strip():
+        try:
+            doc = json.loads(out)
+        except ValueError:
+            doc = None
+        if doc and doc.get("devices"):
+            statics = []
+            for d in doc["devices"]:
+                keep = dict(d)
+                keep.pop("battery", None)
+                statics.append(keep)
+            remember_global(HS_STATIC_KEY, statics)
+            return [hs_device(d) for d in doc["devices"]]
+
+    if known:
+        offline = {"status": "BATTERY_UNAVAILABLE", "level": -1}
+        return [hs_device(dict(d, battery=offline)) for d in known]
+    return []
 
 
 def hs_device(d):
@@ -461,13 +491,18 @@ def orgb_devices():
             control("color", "Colour", "color",
                     value=remembered(dev_id, "color", "#00ff88"))
         ]
-        if d["modes"]:
+        if len(d["modes"]) > 1:
             controls.insert(
                 0,
                 control("mode", "Mode", "enum",
                         options=[{"value": m, "label": m} for m in d["modes"]],
                         value=d["active_mode"] or d["modes"][0]),
             )
+        elif d["modes"]:
+            # A dropdown with one entry is a lie about having a choice. Most
+            # OpenRGB keyboard protocols expose only Direct, meaning effects
+            # have to be animated by software rather than the firmware.
+            controls.insert(0, control("mode", "Mode", "readout", value=d["modes"][0]))
         devices.append({
             "id": dev_id,
             "name": d["name"],
@@ -671,11 +706,35 @@ def cached_document():
         return doc
 
 
-def invalidate_cache():
+def write_cache(doc):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = CACHE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(doc, f)
+    os.replace(tmp, CACHE)
+
+
+def refresh_backend(doc, backend):
+    """Re-enumerate one backend in place.
+
+    A full rebuild after every click costs a re-enumeration of every backend,
+    which is seconds -- clicks felt broken. Only the touched backend can have
+    changed, and re-reading it is what makes dependent controls appear
+    correctly (switching auto white balance off reveals the manual exposure
+    control on the very next frame, not a minute later).
+    """
+    available, enumerate_devices, _apply = ADAPTERS[backend]
+    ok, _reason = available()
+    if not ok:
+        return
     try:
-        os.remove(CACHE)
-    except OSError:
-        pass
+        fresh = {d["id"]: d for d in enumerate_devices()}
+    except Exception:
+        return
+    doc["devices"] = [
+        fresh.get(d["id"], d) if d["backend"] == backend else d
+        for d in doc["devices"]
+    ]
 
 
 def find_device(doc, device_id):
@@ -706,8 +765,9 @@ def main(argv):
         doc = cached_document()
         dev = find_device(doc, device_id)
         ADAPTERS[dev["backend"]][2](dev, key, value)
-        invalidate_cache()
-        json.dump(cached_document(), sys.stdout)
+        refresh_backend(doc, dev["backend"])
+        write_cache(doc)
+        json.dump(doc, sys.stdout)
         sys.stdout.write("\n")
         return 0
 
