@@ -33,6 +33,7 @@ OPENRGB_SAMPLE = """Connection attempt failed
   Description:    SteelSeries Apex RGB Device
   Modes: Off Static [Direct] Breathing
   Zones: Keyboard
+  LEDs: 'Key: A' 'Key: B' 'Key: C'
 """
 
 V4L2_SAMPLE = """
@@ -72,6 +73,30 @@ class TestOpenRGBParser(unittest.TestCase):
     def test_single_mode_device_still_reports_it_active(self):
         self.assertEqual(self.devices[0]["modes"], ["Direct"])
         self.assertEqual(self.devices[0]["active_mode"], "Direct")
+
+
+class TestOpenRGBLeds(unittest.TestCase):
+    def setUp(self):
+        self.devices = omaperi.parse_openrgb(OPENRGB_SAMPLE)
+
+    def test_led_count_is_parsed(self):
+        self.assertEqual(self.devices[1]["leds"], 3)
+
+    def test_controller_without_leds_counts_zero(self):
+        # Zones but no LEDs: an ARGB header whose strip length was never set.
+        self.assertEqual(self.devices[0]["leds"], 0)
+
+    def test_no_colour_control_when_nothing_can_light(self):
+        # Colouring it lights nothing, but the mode change still takes the
+        # header away from whatever is driving it -- the fans just go dark.
+        device = omaperi.orgb_device(self.devices[0])
+        self.assertNotIn("color", [c["key"] for c in device["controls"]])
+        self.assertIn("no configured LEDs", device["note"])
+
+    def test_colour_offered_when_leds_exist(self):
+        device = omaperi.orgb_device(self.devices[1])
+        self.assertIn("color", [c["key"] for c in device["controls"]])
+        self.assertIsNone(device["note"])
 
 
 class TestV4L2Parser(unittest.TestCase):

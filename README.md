@@ -124,6 +124,12 @@ omaperi apply headset:<vid>:<pid> eq_preset 1   # ids come from `omaperi status`
 - **OpenRGB is much faster with its server running.** Cold detection costs about
   1.4 s per call; against a running SDK server it is about 20 ms. Start it with
   `openrgb --server --startminimized` (that also gives you a tray icon).
+- **A controller with no configured LEDs gets no colour control.** An ARGB
+  header whose strip length was never set in OpenRGB reports zones but zero
+  LEDs. Colouring it lights nothing, yet the accompanying mode change still
+  takes the header away from whatever was driving it — so the fans on it just
+  go dark. omaperi offers nothing there and says why. Set the channel sizes in
+  the OpenRGB app first.
 - **OpenRGB colour cannot be read back.** OpenRGB has no state dump — only a
   binary `.orp` profile and an SDK server that is not running as a service on
   most systems — so the colour chip shows what omaperi last set rather than

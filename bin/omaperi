@@ -282,12 +282,23 @@ def razer_device(d):
 
     if d.has("dpi"):
         try:
-            current = d.dpi[0]
+            current = d.dpi[0] or None      # 0 means asleep, same as the battery
         except Exception:
             current = None
+        # The onboard stages, so the panel offers the same presets the mouse's
+        # own DPI button cycles through.
+        stages = razer_dpi_stages(d)
+        if stages:
+            controls.append(
+                control("dpi_stage", "DPI preset", "enum", unit="DPI",
+                        options=[{"value": v, "label": str(v)} for v in stages],
+                        value=current if current in stages else None)
+            )
+        # editable: a 100-30000 slider cannot land on an exact figure, and DPI
+        # is a number people know and type.
         controls.append(
             control("dpi", "DPI", "range", min=100, max=getattr(d, "max_dpi", 16000),
-                    step=50, value=current)
+                    step=50, value=current, editable=True)
         )
 
     if d.has("poll_rate"):
@@ -359,6 +370,23 @@ def razer_device(d):
     }
 
 
+def razer_dpi_stages(d):
+    """The X values of the mouse's onboard DPI stages, in order.
+
+    openrazer returns (active_index, [(x, y), ...]). The index base is not
+    documented consistently across models, so omaperi never writes it back --
+    picking a preset just sets the DPI to that stage's value, which every
+    model handles the same way.
+    """
+    try:
+        if not d.has("dpi_stages"):
+            return []
+        _active, stages = d.dpi_stages
+        return [int(x) for x, _y in stages]
+    except Exception:
+        return []
+
+
 def razer_effects(d):
     """Effects this device actually advertises, cheapest capability first."""
     candidates = [
@@ -390,7 +418,7 @@ def razer_apply(dev, key, value):
     if target is None:
         raise SystemExit("openrazer: device %s is gone" % serial)
 
-    if key == "dpi":
+    if key in ("dpi", "dpi_stage"):
         target.dpi = (int(value), int(value))
     elif key == "poll_rate":
         target.poll_rate = int(value)
@@ -453,7 +481,7 @@ def parse_openrgb(text):
         m = ORGB_DEVICE_RE.match(line)
         if m:
             current = {"index": int(m.group(1)), "name": m.group(2).strip(),
-                       "type": "", "modes": [], "active_mode": None}
+                       "type": "", "modes": [], "active_mode": None, "leds": 0}
             devices.append(current)
             continue
         if current is None:
@@ -461,6 +489,8 @@ def parse_openrgb(text):
         stripped = line.strip()
         if stripped.startswith("Type:"):
             current["type"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("LEDs:"):
+            current["leds"] = len(re.findall(r"'[^']*'", stripped))
         elif stripped.startswith("Modes:"):
             for token in stripped.split(":", 1)[1].split():
                 if token.startswith("[") and token.endswith("]"):
@@ -502,10 +532,15 @@ def orgb_devices():
 
 def orgb_device(d):
         dev_id = "openrgb:%d" % d["index"]
-        controls = [
-            control("color", "Colour", "color",
-                    value=remembered(dev_id, "color", "#00ff88"))
-        ]
+        controls = []
+        # A controller can expose zones while having no LEDs configured -- an
+        # ARGB header whose strip length was never set is the usual case.
+        # Sending it a colour lights nothing, but the accompanying mode change
+        # still takes the header away from whatever was driving it, so the fans
+        # simply go dark. Offer nothing rather than that.
+        if d.get("leds"):
+            controls.append(control("color", "Colour", "color",
+                                    value=remembered(dev_id, "color", "#00ff88")))
         if len(d["modes"]) > 1:
             controls.insert(
                 0,
@@ -527,7 +562,11 @@ def orgb_device(d):
             "backend": "openrgb",
             "battery": None,
             "controls": controls,
-            "note": None,
+            "note": None if d.get("leds") else
+                    "OpenRGB reports no configured LEDs for this controller. "
+                    "Set its ARGB channel sizes in the OpenRGB app first; "
+                    "colouring it from here would only switch the header away "
+                    "from whatever is lighting it now.",
         }
 
 

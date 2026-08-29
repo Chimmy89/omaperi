@@ -361,7 +361,7 @@ Panel {
                   width: parent.width
                   height: labelText.implicitHeight
                   visible: ctlBlock.ctl.type === "range" || ctlBlock.ctl.type === "readout"
-                           || ctlBlock.ctl.type === "color"
+                           || ctlBlock.ctl.type === "color" || ctlBlock.ctl.type === "enum"
 
                   Text {
                     id: labelText
@@ -392,7 +392,23 @@ Panel {
                       border.color: Color.popups.border
                     }
 
+                    // A 100-30000 slider cannot land on an exact figure, and
+                    // DPI is a number people know and want to type.
+                    NumberField {
+                      visible: ctlBlock.ctl.editable === true
+                      anchors.verticalCenter: parent.verticalCenter
+                      value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
+                             ? ctlBlock.ctl.value : 0
+                      from: ctlBlock.ctl.min !== undefined ? ctlBlock.ctl.min : 0
+                      to: ctlBlock.ctl.max !== undefined ? ctlBlock.ctl.max : 100000
+                      stepSize: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
+                      onModified: function (v) {
+                        root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                      }
+                    }
+
                     Text {
+                      visible: ctlBlock.ctl.editable !== true
                       anchors.verticalCenter: parent.verticalCenter
                       text: Model.displayValue(ctlBlock.ctl)
                       color: Color.foreground
@@ -434,20 +450,52 @@ Panel {
                   }
                 }
 
+                // Pills, not a dropdown: qs.Ui.Dropdown opens a Popup pinned
+                // below its trigger, and that Popup is confined to this panel
+                // window. On a short card a six-entry list showed two entries
+                // and no way to reach the rest. A wrapped row is always fully
+                // visible and matches the tab strip and swatches.
                 Loader {
                   width: parent.width
                   active: ctlBlock.ctl.type === "enum"
                   visible: active
                   sourceComponent: Component {
-                  Dropdown {
-                    width: parent.width
-                    label: ctlBlock.ctl.label
-                    options: Model.dropdownOptions(ctlBlock.ctl)
-                    value: String(ctlBlock.ctl.value)
-                    onChanged: function (v) {
-                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                    Flow {
+                      width: parent.width
+                      spacing: Style.space(6)
+
+                      Repeater {
+                        model: Model.dropdownOptions(ctlBlock.ctl)
+
+                        delegate: Rectangle {
+                          id: option
+                          required property var modelData
+                          width: optionLabel.implicitWidth + Style.space(18)
+                          height: Style.space(28)
+                          radius: Style.cornerRadius
+                          color: option.modelData.value === String(ctlBlock.ctl.value)
+                                 ? root.selectedFill : "transparent"
+                          border.width: 1
+                          border.color: Color.popups.border
+
+                          Text {
+                            id: optionLabel
+                            anchors.centerIn: parent
+                            text: option.modelData.label
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                          }
+
+                          MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                                  option.modelData.value)
+                          }
+                        }
+                      }
                     }
-                  }
                   }
                 }
 
