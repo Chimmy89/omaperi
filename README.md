@@ -24,14 +24,34 @@ v4l2-ctl --list-ctrls    →  ┘
 | Anything OpenRGB sees | `openrgb` | mode, colour |
 | Webcams | `v4l2-ctl` | brightness, contrast, white balance, exposure, power-line frequency |
 
-The panel is tabbed, one tab per device, in the style of the mail and teslamate
-widgets: a glyph, a short kind name ("Mouse", not the product string), and the
-battery where there is one. A device that cannot report right now still gets a
-tab, dimmed.
+The panel is tabbed, one tab per device: a glyph, a short kind name ("Mouse",
+not the product string), and the battery where there is one. A device that
+cannot report right now still gets a tab, dimmed.
 
 Only what a device really has appears. A headset without lights shows no light
 switch; a mouse whose dongle exposes no lighting says so instead of offering a
 control that does nothing.
+
+## Screenshots
+
+One slot in the bar, whatever `barMode` you pick:
+
+![The omaperi widget in the Omarchy bar](docs/screenshots/bar.png)
+
+One tab per device, each showing only the controls that device really has:
+
+| Headset | Mouse | Keyboard |
+|---|---|---|
+| ![Headset tab](docs/screenshots/headset.png) | ![Mouse tab](docs/screenshots/mouse.png) | ![Keyboard tab](docs/screenshots/keyboard.png) |
+
+The headset is powered off and says so instead of offering controls that would
+do nothing; the mouse reports that OpenRazer exposes no lighting through its
+dongle; the keyboard's single OpenRGB mode is shown as a value rather than a
+dropdown pretending to be a choice.
+
+A webcam, whose ten V4L2 controls are read straight off the device:
+
+![Webcam tab](preview.png)
 
 ## Install
 

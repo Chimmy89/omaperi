@@ -32,7 +32,7 @@ Panel {
   readonly property int lowPct: Math.max(0, parseInt(setting("lowPct", 15)) || 15)
   readonly property bool showPercentage: setting("showPercentage", true) === true
   // "summary" keeps one fixed slot; "pills" gives each battery-bearing device
-  // its own, the way the old devicebattery widget did.
+  // its own.
   readonly property string barMode: String(setting("barMode", "summary"))
 
   // ---- live state ----
@@ -156,6 +156,7 @@ Panel {
 
     // Pills: the widget glyph always first, so the click target stays put even
     // when every device is asleep, then one slot per reporting battery.
+    // Wider than summary, and it changes width as devices wake and sleep.
     WidgetButton {
       bar: root.bar
       visible: root.barMode === "pills"
