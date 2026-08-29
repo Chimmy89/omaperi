@@ -16,9 +16,9 @@ import "Model.js" as Model
 Panel {
   id: root
   moduleName: "io.github.chimmy89.omaperi"
+  // Panel registers open/close/toggle on this target itself; there are no
+  // extra IPC methods to add, so let it manage the handler.
   ipcTarget: "omaperi"
-  // This panel owns the single IpcHandler the target permits.
-  manageIpc: false
 
   // The bar sizes each slot from the widget root's implicit size, so expose
   // the button row's here or the slot collapses to zero width.
@@ -143,21 +143,23 @@ Panel {
   }
 
   // ---- panel ----
-  KeyboardPanel {
+  // PopupCard, not KeyboardPanel: KeyboardPanel is a layer-shell window with
+  // multi-monitor dismiss twins, and on a two-screen setup the second screen's
+  // twin closes the panel about a second after the first screen opens it.
+  // PopupCard is a plain xdg-popup with outside-click dismiss, which is all
+  // this widget needs.
+  PopupCard {
     id: panel
-    anchorItem: slots
+    anchorItem: root
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(400))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
-    PanelKeyCatcher {
+    Item {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
-      onTabRequested: function (direction) { root.switchPanel(direction) }
 
       Column {
         id: column
