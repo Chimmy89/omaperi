@@ -1,0 +1,710 @@
+#!/usr/bin/env python3
+"""omaperi — one control surface for every peripheral.
+
+Every vendor tool worth using already describes its own device: headsetcontrol
+reports a capability list, openrazer answers has(), OpenRGB lists modes and
+zones, v4l2-ctl prints types and ranges. So omaperi owns no device database.
+Each adapter translates one of those tools into the same capability document,
+and the Omarchy panel renders that document generically.
+
+The consequence worth protecting: a new device is a new *adapter*, never new
+QML. If a device needs a tool that isn't installed, its adapter reports itself
+unavailable and disappears from the panel instead of erroring.
+
+  omaperi status              capability document for everything present
+  omaperi apply ID KEY VALUE  set one control, print the refreshed document
+  omaperi backends            which adapters are live, and why not
+
+Document schema (version 1):
+
+  {"schema": 1,
+   "devices": [{"id", "name", "kind", "backend", "battery", "controls": [...]}],
+   "backends": [{"name", "available", "reason"}]}
+
+Control types: range | enum | toggle | action | readout | color
+"""
+
+import fcntl
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+SCHEMA = 1
+STATE_DIR = os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "omaperi"
+)
+CACHE = os.path.join(STATE_DIR, "cache.json")
+LOCK = os.path.join(STATE_DIR, "poll.lock")
+STATE = os.path.join(STATE_DIR, "state.json")
+CACHE_TTL = float(os.environ.get("OMAPERI_CACHE_TTL", "10"))
+
+
+def run(cmd, timeout=15):
+    """Return (rc, stdout, stderr); rc 127 when the binary is missing."""
+    try:
+        p = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, check=False
+        )
+        return p.returncode, p.stdout, p.stderr
+    except FileNotFoundError:
+        return 127, "", "not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out"
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, STATE)
+
+
+def remembered(device_id, key, fallback=None):
+    """Last value we wrote for a write-only control.
+
+    Several of these tools set without being able to read back (headsetcontrol
+    sidetone is the clearest case), so the panel would otherwise show a slider
+    that never reflects reality. Remember what we sent.
+    """
+    return load_state().get(device_id, {}).get(key, fallback)
+
+
+def remember(device_id, key, value):
+    state = load_state()
+    state.setdefault(device_id, {})[key] = value
+    save_state(state)
+
+
+def control(key, label, ctype, **kw):
+    c = {"key": key, "label": label, "type": ctype}
+    c.update({k: v for k, v in kw.items() if v is not None})
+    return c
+
+
+# --------------------------------------------------------------------------
+# headsetcontrol — headsets
+# --------------------------------------------------------------------------
+
+# Capability -> control. headsetcontrol names its own capabilities, so this is
+# a flag table rather than a per-model table: any headset it supports shows up
+# with exactly the controls it actually has.
+HS_RANGES = {
+    "CAP_SIDETONE": ("sidetone", "Sidetone", "-s", 0, 128, None),
+    "CAP_INACTIVE_TIME": ("inactive_time", "Auto-off", "-i", 0, 90, "min"),
+    "CAP_MICROPHONE_VOLUME": ("mic_volume", "Mic volume", "--microphone-volume", 0, 128, None),
+    "CAP_MICROPHONE_MUTE_LED_BRIGHTNESS": (
+        "mic_led", "Mic mute LED", "--microphone-mute-led-brightness", 0, 3, None),
+    "CAP_BT_CALL_VOLUME": ("bt_call_volume", "BT call volume", "--bt-call-volume", 0, 2, None),
+}
+HS_TOGGLES = {
+    "CAP_LIGHTS": ("lights", "Lights", "-l"),
+    "CAP_VOICE_PROMPTS": ("voice_prompts", "Voice prompts", "-v"),
+    "CAP_VOLUME_LIMITER": ("volume_limiter", "Volume limiter", "--volume-limiter"),
+    "CAP_BT_WHEN_POWERED_ON": ("bt_on_power", "Bluetooth on power-on", "--bt-when-powered-on"),
+}
+
+
+def hs_available():
+    if not shutil.which("headsetcontrol"):
+        return False, "headsetcontrol not installed"
+    return True, None
+
+
+def hs_devices():
+    rc, out, _ = run(["headsetcontrol", "-o", "json"])
+    if rc != 0 or not out.strip():
+        return []
+    try:
+        doc = json.loads(out)
+    except ValueError:
+        return []
+    return [hs_device(d) for d in doc.get("devices", [])]
+
+
+def hs_device(d):
+    dev_id = "headset:%s:%s" % (
+        str(d.get("id_vendor", "")).replace("0x", ""),
+        str(d.get("id_product", "")).replace("0x", ""),
+    )
+    caps = d.get("capabilities", [])
+    controls = []
+
+    for cap, (key, label, _flag, lo, hi, unit) in HS_RANGES.items():
+        if cap in caps:
+            controls.append(
+                control(key, label, "range", min=lo, max=hi, step=1, unit=unit,
+                        value=remembered(dev_id, key, lo))
+            )
+
+    presets = d.get("equalizer_presets") or {}
+    if "CAP_EQUALIZER_PRESET" in caps and presets:
+        # -p takes the preset's index, so carry the index as the value and the
+        # name as the label.
+        options = [{"value": i, "label": n} for i, n in enumerate(presets)]
+        controls.append(
+            control("eq_preset", "Equalizer", "enum", options=options,
+                    value=remembered(dev_id, "eq_preset", 0))
+        )
+
+    for cap, (key, label, _flag) in HS_TOGGLES.items():
+        if cap in caps:
+            controls.append(
+                control(key, label, "toggle", value=bool(remembered(dev_id, key, False)))
+            )
+
+    if "CAP_NOTIFICATION_SOUND" in caps:
+        controls.append(control("notification_sound", "Play test sound", "action"))
+
+    chatmix = d.get("chatmix")
+    if "CAP_CHATMIX_STATUS" in caps and isinstance(chatmix, int) and chatmix >= 0:
+        controls.append(control("chatmix", "Chat/game mix", "readout", value=chatmix))
+
+    battery = None
+    bat = d.get("battery") or {}
+    if bat.get("status") in ("BATTERY_AVAILABLE", "BATTERY_CHARGING"):
+        battery = {
+            "level": bat.get("level"),
+            "charging": bat.get("status") == "BATTERY_CHARGING",
+        }
+
+    return {
+        "id": dev_id,
+        "name": d.get("device") or d.get("product") or "Headset",
+        "kind": "headset",
+        "backend": "headsetcontrol",
+        "battery": battery,
+        "controls": controls,
+        # A headset that is off still enumerates over its dongle; say so rather
+        # than showing controls that will silently do nothing.
+        "note": None if battery else "Powered off or out of range",
+    }
+
+
+def hs_apply(dev, key, value):
+    flag = None
+    for cap, (k, _l, f, _lo, _hi, _u) in HS_RANGES.items():
+        if k == key:
+            flag = f
+    for cap, (k, _l, f) in HS_TOGGLES.items():
+        if k == key:
+            flag = f
+            value = 1 if str(value).lower() in ("1", "true", "on", "yes") else 0
+    if key == "eq_preset":
+        flag = "-p"
+    if key == "notification_sound":
+        flag, value = "-n", 1
+    if flag is None:
+        raise SystemExit("headsetcontrol: no such control %r" % key)
+
+    rc, _out, err = run(["headsetcontrol", flag, str(value)])
+    if rc != 0:
+        raise SystemExit("headsetcontrol %s %s failed: %s" % (flag, value, err.strip()))
+    if key in HS_TOGGLES:
+        remember(dev["id"], key, bool(int(value)))
+    elif key != "notification_sound":
+        remember(dev["id"], key, int(value))
+
+
+# --------------------------------------------------------------------------
+# openrazer — Razer mice and keyboards
+# --------------------------------------------------------------------------
+
+
+def razer_available():
+    try:
+        import openrazer.client  # noqa: F401
+    except ImportError:
+        return False, "python-openrazer not installed"
+    rc, _o, _e = run(["systemctl", "--user", "is-active", "openrazer-daemon"], timeout=5)
+    if rc != 0:
+        return False, "openrazer-daemon not running"
+    return True, None
+
+
+def razer_devices():
+    try:
+        from openrazer.client import DeviceManager
+    except ImportError:
+        return []
+    try:
+        devices = DeviceManager().devices
+    except Exception:
+        return []
+    return [razer_device(d) for d in devices]
+
+
+def razer_device(d):
+    dev_id = "razer:%s" % d.serial
+    controls = []
+
+    if d.has("dpi"):
+        try:
+            current = d.dpi[0]
+        except Exception:
+            current = None
+        controls.append(
+            control("dpi", "DPI", "range", min=100, max=getattr(d, "max_dpi", 16000),
+                    step=50, value=current)
+        )
+
+    if d.has("poll_rate"):
+        rates = getattr(d, "supported_poll_rates", None) or [125, 500, 1000]
+        controls.append(
+            control("poll_rate", "Polling rate", "enum", unit="Hz",
+                    options=[{"value": r, "label": "%d Hz" % r} for r in rates],
+                    value=getattr(d, "poll_rate", None))
+        )
+
+    if d.has("brightness"):
+        try:
+            controls.append(
+                control("brightness", "Brightness", "range", min=0, max=100, step=1,
+                        value=int(d.brightness))
+            )
+        except Exception:
+            pass
+
+    effects = razer_effects(d)
+    if effects:
+        controls.append(
+            control("effect", "Lighting", "enum",
+                    options=[{"value": e, "label": e.title()} for e in effects],
+                    value=remembered(dev_id, "effect"))
+        )
+        controls.append(
+            control("color", "Colour", "color", value=remembered(dev_id, "color", "#00ff88"))
+        )
+
+    try:
+        idle_seconds = d.get_idle_time()
+        controls.append(
+            control("idle_time", "Sleep after", "range", min=1, max=15, step=1,
+                    unit="min", value=max(1, int(idle_seconds) // 60))
+        )
+    except Exception:
+        pass
+
+    battery = None
+    if d.has("battery"):
+        try:
+            battery = {"level": round(d.battery_level), "charging": bool(d.is_charging)}
+        except Exception:
+            battery = None
+
+    note = None
+    if not effects:
+        # True for anything behind the HyperPolling dongle: openrazer exposes
+        # battery/DPI/polling but no lighting endpoints at all.
+        note = "No lighting exposed by openrazer for this device"
+
+    return {
+        "id": dev_id,
+        "name": d.name,
+        "kind": d.type if d.type in ("mouse", "keyboard", "headset") else "other",
+        "backend": "openrazer",
+        "battery": battery,
+        "controls": controls,
+        "note": note,
+    }
+
+
+def razer_effects(d):
+    """Effects this device actually advertises, cheapest capability first."""
+    candidates = [
+        ("static", "lighting_static"),
+        ("breath_single", "lighting_breath_single"),
+        ("spectrum", "lighting_spectrum"),
+        ("wave", "lighting_wave"),
+        ("reactive", "lighting_reactive"),
+    ]
+    out = []
+    for name, cap in candidates:
+        try:
+            if d.has(cap):
+                out.append(name)
+        except Exception:
+            pass
+    return out
+
+
+def razer_apply(dev, key, value):
+    from openrazer.client import DeviceManager
+
+    serial = dev["id"].split(":", 1)[1]
+    target = None
+    for d in DeviceManager().devices:
+        if d.serial == serial:
+            target = d
+            break
+    if target is None:
+        raise SystemExit("openrazer: device %s is gone" % serial)
+
+    if key == "dpi":
+        target.dpi = (int(value), int(value))
+    elif key == "poll_rate":
+        target.poll_rate = int(value)
+    elif key == "brightness":
+        target.brightness = float(value)
+    elif key == "idle_time":
+        target.set_idle_time(int(value) * 60)
+    elif key in ("effect", "color"):
+        razer_apply_lighting(target, dev["id"], key, value)
+    else:
+        raise SystemExit("openrazer: no such control %r" % key)
+
+
+def razer_apply_lighting(target, dev_id, key, value):
+    remember(dev_id, key, value)
+    effect = remembered(dev_id, "effect") or "static"
+    rgb = hex_to_rgb(remembered(dev_id, "color", "#00ff88"))
+    fx = target.fx
+    if effect == "static":
+        fx.static(*rgb)
+    elif effect == "breath_single":
+        fx.breath_single(*rgb)
+    elif effect == "spectrum":
+        fx.spectrum()
+    elif effect == "wave":
+        fx.wave(1)
+    elif effect == "reactive":
+        fx.reactive(*rgb, 2)
+
+
+def hex_to_rgb(value):
+    value = (value or "#000000").lstrip("#")
+    if len(value) != 6:
+        return (0, 0, 0)
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+# --------------------------------------------------------------------------
+# OpenRGB — anything OpenRGB sees (keyboards, motherboards, RAM, ...)
+# --------------------------------------------------------------------------
+
+ORGB_DEVICE_RE = re.compile(r"^(\d+):\s+(.*)$")
+
+
+def orgb_available():
+    if not shutil.which("openrgb"):
+        return False, "openrgb not installed"
+    return True, None
+
+
+def parse_openrgb(text):
+    """Parse `openrgb --list-devices` into dicts.
+
+    Kept pure so it is testable without hardware; the bracketed mode is the
+    active one.
+    """
+    devices = []
+    current = None
+    for line in text.splitlines():
+        m = ORGB_DEVICE_RE.match(line)
+        if m:
+            current = {"index": int(m.group(1)), "name": m.group(2).strip(),
+                       "type": "", "modes": [], "active_mode": None}
+            devices.append(current)
+            continue
+        if current is None:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("Type:"):
+            current["type"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Modes:"):
+            for token in stripped.split(":", 1)[1].split():
+                if token.startswith("[") and token.endswith("]"):
+                    token = token[1:-1]
+                    current["active_mode"] = token
+                current["modes"].append(token)
+    return devices
+
+
+ORGB_KIND = {
+    "Keyboard": "keyboard",
+    "Mouse": "mouse",
+    "Motherboard": "motherboard",
+    "DRAM": "memory",
+    "GPU": "gpu",
+    "Headset": "headset",
+}
+
+
+def orgb_devices():
+    rc, out, _ = run(["openrgb", "--list-devices"], timeout=45)
+    if rc != 0:
+        return []
+    devices = []
+    for d in parse_openrgb(out):
+        dev_id = "openrgb:%d" % d["index"]
+        controls = [
+            control("color", "Colour", "color",
+                    value=remembered(dev_id, "color", "#00ff88"))
+        ]
+        if d["modes"]:
+            controls.insert(
+                0,
+                control("mode", "Mode", "enum",
+                        options=[{"value": m, "label": m} for m in d["modes"]],
+                        value=d["active_mode"] or d["modes"][0]),
+            )
+        devices.append({
+            "id": dev_id,
+            "name": d["name"],
+            "kind": ORGB_KIND.get(d["type"], "other"),
+            "backend": "openrgb",
+            "battery": None,
+            "controls": controls,
+            "note": None,
+        })
+    return devices
+
+
+def orgb_apply(dev, key, value):
+    index = dev["id"].split(":", 1)[1]
+    remember(dev["id"], key, value)
+    cmd = ["openrgb", "--device", index]
+    if key == "color":
+        cmd += ["--color", (value or "").lstrip("#")]
+        mode = remembered(dev["id"], "mode")
+        if mode:
+            cmd += ["--mode", mode]
+    elif key == "mode":
+        cmd += ["--mode", str(value)]
+        colour = remembered(dev["id"], "color")
+        if colour:
+            cmd += ["--color", colour.lstrip("#")]
+    else:
+        raise SystemExit("openrgb: no such control %r" % key)
+
+    rc, _out, err = run(cmd, timeout=45)
+    if rc != 0:
+        raise SystemExit("openrgb failed: %s" % err.strip())
+
+
+# --------------------------------------------------------------------------
+# v4l2 — webcams
+# --------------------------------------------------------------------------
+
+V4L2_CTRL_RE = re.compile(
+    r"^\s*(?P<name>\w+)\s+0x[0-9a-f]+\s+\((?P<type>\w+)\)\s*:\s*(?P<rest>.*)$"
+)
+V4L2_MENU_RE = re.compile(r"^\s+(?P<value>\d+):\s*(?P<label>.+?)\s*$")
+
+
+def v4l2_available():
+    if not shutil.which("v4l2-ctl"):
+        return False, "v4l-utils not installed"
+    return True, None
+
+
+def parse_v4l2_controls(text):
+    """Parse `v4l2-ctl --list-ctrls-menus` into uniform controls.
+
+    Controls flagged inactive are dropped: they are the ones an automatic mode
+    currently owns (exposure while auto-exposure is on), and writing them
+    fails. Turn the automatic control off and they reappear on the next poll.
+    """
+    controls = []
+    for line in text.splitlines():
+        m = V4L2_CTRL_RE.match(line)
+        if m:
+            attrs = dict(
+                re.findall(r"(\w+)=(-?\d+)", m.group("rest"))
+            )
+            flags = ""
+            fm = re.search(r"flags=(.*)$", m.group("rest"))
+            if fm:
+                flags = fm.group(1)
+            if "inactive" in flags or "read-only" in flags:
+                continue
+            ctype = m.group("type")
+            name = m.group("name")
+            label = name.replace("_", " ").capitalize()
+            value = int(attrs["value"]) if "value" in attrs else None
+            if ctype == "bool":
+                controls.append(control(name, label, "toggle", value=bool(value)))
+            elif ctype == "int":
+                controls.append(
+                    control(name, label, "range",
+                            min=int(attrs.get("min", 0)), max=int(attrs.get("max", 100)),
+                            step=int(attrs.get("step", 1)), value=value)
+                )
+            elif ctype == "menu":
+                controls.append(control(name, label, "enum", options=[], value=value))
+            continue
+
+        mm = V4L2_MENU_RE.match(line)
+        if mm and controls and controls[-1]["type"] == "enum":
+            controls[-1]["options"].append(
+                {"value": int(mm.group("value")), "label": mm.group("label")}
+            )
+    # A menu with no parsed entries would render as an empty dropdown.
+    return [c for c in controls if c["type"] != "enum" or c.get("options")]
+
+
+def v4l2_capture_nodes():
+    """Only real capture nodes — uvcvideo also exposes a metadata node."""
+    nodes = []
+    for path in sorted(
+        p for p in os.listdir("/dev") if re.fullmatch(r"video\d+", p)
+    ):
+        dev = "/dev/" + path
+        rc, out, _ = run(["v4l2-ctl", "-d", dev, "--info"], timeout=10)
+        if rc != 0:
+            continue
+        caps = out.split("Device Caps", 1)
+        if len(caps) < 2 or "Video Capture" not in caps[1].split("Media Driver")[0]:
+            continue
+        name = "Webcam"
+        nm = re.search(r"Card type\s*:\s*(.+)", out)
+        if nm:
+            name = nm.group(1).strip()
+        nodes.append((dev, name))
+    return nodes
+
+
+def v4l2_devices():
+    devices = []
+    for dev, name in v4l2_capture_nodes():
+        rc, out, _ = run(["v4l2-ctl", "-d", dev, "--list-ctrls-menus"], timeout=10)
+        if rc != 0:
+            continue
+        controls = parse_v4l2_controls(out)
+        if not controls:
+            continue
+        devices.append({
+            "id": "v4l2:%s" % os.path.basename(dev),
+            "name": name,
+            "kind": "webcam",
+            "backend": "v4l2",
+            "battery": None,
+            "controls": controls,
+            "note": None,
+        })
+    return devices
+
+
+def v4l2_apply(dev, key, value):
+    node = "/dev/" + dev["id"].split(":", 1)[1]
+    if isinstance(value, bool):
+        value = 1 if value else 0
+    if str(value).lower() in ("true", "false"):
+        value = 1 if str(value).lower() == "true" else 0
+    rc, _out, err = run(["v4l2-ctl", "-d", node, "-c", "%s=%s" % (key, value)])
+    if rc != 0:
+        raise SystemExit("v4l2-ctl %s=%s failed: %s" % (key, value, err.strip()))
+
+
+# --------------------------------------------------------------------------
+# adapter registry
+# --------------------------------------------------------------------------
+
+ADAPTERS = {
+    "headsetcontrol": (hs_available, hs_devices, hs_apply),
+    "openrazer": (razer_available, razer_devices, razer_apply),
+    "openrgb": (orgb_available, orgb_devices, orgb_apply),
+    "v4l2": (v4l2_available, v4l2_devices, v4l2_apply),
+}
+
+KIND_ORDER = ["headset", "mouse", "keyboard", "webcam", "motherboard", "memory", "gpu", "other"]
+
+
+def build_document():
+    devices, backends = [], []
+    for name, (available, enumerate_devices, _apply) in ADAPTERS.items():
+        ok, reason = available()
+        backends.append({"name": name, "available": ok, "reason": reason})
+        if not ok:
+            continue
+        try:
+            devices.extend(enumerate_devices())
+        except Exception as exc:  # one broken backend must not blank the panel
+            backends[-1] = {"name": name, "available": False, "reason": str(exc)}
+    devices.sort(key=lambda d: (KIND_ORDER.index(d["kind"])
+                                if d["kind"] in KIND_ORDER else 99, d["name"]))
+    return {"schema": SCHEMA, "devices": devices, "backends": backends}
+
+
+def cached_document():
+    """Poll under a lock, and serve a short cache.
+
+    The bar instantiates one widget per monitor, so two polls can land at once;
+    two concurrent headsetcontrol calls fight over the same HID device and both
+    come back empty, which reads exactly like "device is off".
+    """
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            age = time.time() - os.path.getmtime(CACHE)
+            if 0 <= age < CACHE_TTL:
+                with open(CACHE) as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        doc = build_document()
+        tmp = CACHE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(doc, f)
+        os.replace(tmp, CACHE)
+        return doc
+
+
+def invalidate_cache():
+    try:
+        os.remove(CACHE)
+    except OSError:
+        pass
+
+
+def find_device(doc, device_id):
+    for d in doc["devices"]:
+        if d["id"] == device_id:
+            return d
+    raise SystemExit("no such device: %s" % device_id)
+
+
+def main(argv):
+    command = argv[1] if len(argv) > 1 else "status"
+
+    if command == "status":
+        json.dump(cached_document(), sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+
+    if command == "backends":
+        for b in build_document()["backends"]:
+            mark = "ok" if b["available"] else "--"
+            print("%s %-16s %s" % (mark, b["name"], b["reason"] or ""))
+        return 0
+
+    if command == "apply":
+        if len(argv) < 5:
+            raise SystemExit("usage: omaperi apply DEVICE_ID CONTROL VALUE")
+        device_id, key, value = argv[2], argv[3], argv[4]
+        doc = cached_document()
+        dev = find_device(doc, device_id)
+        ADAPTERS[dev["backend"]][2](dev, key, value)
+        invalidate_cache()
+        json.dump(cached_document(), sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+
+    raise SystemExit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
