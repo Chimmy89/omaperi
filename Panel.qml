@@ -30,6 +30,9 @@ Panel {
   readonly property int pollSeconds: Math.max(5, parseInt(setting("pollSeconds", 60)) || 60)
   readonly property int lowPct: Math.max(0, parseInt(setting("lowPct", 15)) || 15)
   readonly property bool showPercentage: setting("showPercentage", true) === true
+  // "summary" keeps one fixed slot; "pills" gives each battery-bearing device
+  // its own, the way the old devicebattery widget did.
+  readonly property string barMode: String(setting("barMode", "summary"))
 
   // ---- live state ----
   property var devices: []
@@ -117,11 +120,36 @@ Panel {
     id: slots
     anchors.fill: parent
     spacing: 0
-    rows: root.bar && root.bar.vertical ? (slots.children.length) : 1
-    columns: root.bar && root.bar.vertical ? 1 : slots.children.length
+    rows: root.bar && root.bar.vertical ? 99 : 1
+    columns: root.bar && root.bar.vertical ? 1 : 99
+
+    // Summary: one slot that never moves or disappears.
+    WidgetButton {
+      bar: root.bar
+      visible: root.barMode !== "pills"
+      text: Model.summaryText(root.devices, root.showPercentage)
+      horizontalMargin: 8.75
+      fontSize: Style.font.caption
+      active: Model.anyLow(root.devices, root.lowPct)
+      useActiveColor: true
+      tooltipText: Model.tooltipFor(root.devices, root.backends)
+      onPressed: root.toggle()
+    }
+
+    // Pills: the widget glyph always first, so the click target stays put even
+    // when every device is asleep, then one slot per reporting battery.
+    WidgetButton {
+      bar: root.bar
+      visible: root.barMode === "pills"
+      text: Model.glyphFor("other")
+      horizontalMargin: 8.75
+      fontSize: Style.font.caption
+      tooltipText: Model.tooltipFor(root.devices, root.backends)
+      onPressed: root.toggle()
+    }
 
     Repeater {
-      model: root.batteryEntries
+      model: root.barMode === "pills" ? root.batteryEntries : []
       delegate: WidgetButton {
         id: batteryButton
         required property var modelData
@@ -137,18 +165,6 @@ Panel {
                      + (modelData.charging ? " · charging" : "")
         onPressed: root.toggle()
       }
-    }
-
-    // Keeps the panel reachable when nothing reports a battery — otherwise a
-    // desk of wired devices would have no way in.
-    WidgetButton {
-      bar: root.bar
-      visible: root.batteryEntries.length === 0
-      text: Model.glyphFor("other")
-      horizontalMargin: 8.75
-      fontSize: Style.font.caption
-      tooltipText: Model.tooltipFor(root.devices, root.backends)
-      onPressed: root.toggle()
     }
   }
 

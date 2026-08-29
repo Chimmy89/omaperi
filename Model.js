@@ -54,6 +54,26 @@ function batteryEntries(devices) {
   return out
 }
 
+// The device with least charge, which is the one worth a glance in the bar.
+function lowestBattery(devices) {
+  var entries = batteryEntries(devices)
+  if (!entries.length) return null
+  var lowest = entries[0]
+  for (var i = 1; i < entries.length; i++) {
+    if (entries[i].level < lowest.level) lowest = entries[i]
+  }
+  return lowest
+}
+
+// Summary mode keeps one fixed slot: the widget's own glyph, plus the lowest
+// battery when anything reports one. Never changes width as devices sleep.
+function summaryText(devices, showPercentage) {
+  var glyph = glyphFor("other")
+  if (!showPercentage) return glyph
+  var lowest = lowestBattery(devices)
+  return lowest ? glyph + "  " + lowest.level + "%" : glyph
+}
+
 function isLow(entry, lowPct) {
   return entry.level <= lowPct && !entry.charging
 }

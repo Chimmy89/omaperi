@@ -55,6 +55,17 @@ yay -S openrazer-meta                             # Razer devices
 
 `omaperi backends` prints which are live and why the others are not.
 
+### Bar presentation
+
+`barMode` (in the widget's `shell.json` entry) picks between:
+
+- `summary` (default) — one fixed slot: the widget glyph plus the lowest
+  battery among all devices, accent-coloured when low. The slot never changes
+  width or disappears as devices sleep, so the click target stays put.
+- `pills` — the glyph, then one slot per battery-bearing device. More
+  at-a-glance detail, at the cost of a widget that changes width when a mouse
+  goes to sleep.
+
 ## Usage
 
 ```bash

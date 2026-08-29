@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "chimmy89",
   "license": "MIT",
-  "description": "One bar widget for every peripheral. Headsets, mice, keyboards and webcams in a single panel that renders whatever each device actually exposes — sidetone and EQ presets, DPI and polling rate, lighting, webcam image settings — via headsetcontrol, OpenRazer, OpenRGB and v4l2.",
+  "description": "One bar widget for every peripheral. Headsets, mice, keyboards and webcams in a single panel that renders whatever each device actually exposes \u2014 sidetone and EQ presets, DPI and polling rate, lighting, webcam image settings \u2014 via headsetcontrol, OpenRazer, OpenRGB and v4l2.",
   "kinds": [
     "bar-widget"
   ],
@@ -22,7 +22,8 @@
       "binary": "omaperi",
       "pollSeconds": 60,
       "lowPct": 15,
-      "showPercentage": true
+      "showPercentage": true,
+      "barMode": "summary"
     },
     "schema": [
       {
@@ -30,6 +31,16 @@
         "type": "string",
         "label": "omaperi executable",
         "description": "Path to the omaperi CLI, or just its name if it is on PATH."
+      },
+      {
+        "key": "barMode",
+        "type": "string",
+        "label": "Bar presentation",
+        "description": "\"summary\" for one fixed slot showing the lowest battery, or \"pills\" for one slot per battery-bearing device.",
+        "options": [
+          "summary",
+          "pills"
+        ]
       },
       {
         "key": "pollSeconds",
