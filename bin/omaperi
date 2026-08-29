@@ -681,8 +681,13 @@ def build_document():
     return {"schema": SCHEMA, "devices": devices, "backends": backends}
 
 
-def cached_document():
+def cached_document(max_age=None):
     """Poll under a lock, and serve a short cache.
+
+    `max_age` defaults to CACHE_TTL. Pass float("inf") to accept a cached
+    document of any age: apply only needs to know which backend owns the
+    device, and it re-enumerates that backend immediately afterwards, so
+    paying for a full rebuild first just makes the click slower.
 
     The bar instantiates one widget per monitor, so two polls can land at once;
     two concurrent headsetcontrol calls fight over the same HID device and both
@@ -693,7 +698,7 @@ def cached_document():
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             age = time.time() - os.path.getmtime(CACHE)
-            if 0 <= age < CACHE_TTL:
+            if 0 <= age < (CACHE_TTL if max_age is None else max_age):
                 with open(CACHE) as f:
                     return json.load(f)
         except Exception:
@@ -762,7 +767,7 @@ def main(argv):
         if len(argv) < 5:
             raise SystemExit("usage: omaperi apply DEVICE_ID CONTROL VALUE")
         device_id, key, value = argv[2], argv[3], argv[4]
-        doc = cached_document()
+        doc = cached_document(max_age=float("inf"))
         dev = find_device(doc, device_id)
         ADAPTERS[dev["backend"]][2](dev, key, value)
         refresh_backend(doc, dev["backend"])

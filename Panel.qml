@@ -51,6 +51,11 @@ Panel {
   // way and one round trip is enough to update the panel.
   property var pending: []
 
+  // Which control has a command in flight, as "deviceId/key". Applies are fast
+  // now, but OpenRGB still costs about a second, and a click with no feedback
+  // reads as a click that did nothing.
+  property string busyKey: ""
+
   function refresh() {
     runArgs(["status"])
   }
@@ -65,6 +70,9 @@ Panel {
       root.pending.push(args)
       return
     }
+    // Set here rather than in apply(), so a queued command marks its own
+    // control busy when it finally starts rather than when it was clicked.
+    root.busyKey = args[0] === "apply" ? (args[1] + "/" + args[2]) : ""
     cli.command = [root.binary].concat(args)
     cli.running = true
   }
@@ -101,7 +109,10 @@ Panel {
       waitForEnd: true
       onStreamFinished: if (text && String(text).trim()) root.lastError = String(text).trim()
     }
-    onExited: Qt.callLater(root.drainPending)
+    onExited: {
+      root.busyKey = ""
+      Qt.callLater(root.drainPending)
+    }
   }
 
   Timer {
@@ -289,8 +300,14 @@ Panel {
               required property var modelData
               readonly property var ctl: ctlBlock.modelData
               readonly property string deviceId: root.selectedId
+              readonly property bool busy: root.busyKey !== ""
+                                           && root.busyKey === ctlBlock.deviceId + "/" + ctlBlock.ctl.key
               width: deviceBlock.width
               spacing: Style.space(4)
+              opacity: ctlBlock.busy ? 0.45 : 1.0
+              enabled: !ctlBlock.busy
+
+              Behavior on opacity { NumberAnimation { duration: 90 } }
 
                 // Label row for the types that do not carry their own label.
                 Item {
