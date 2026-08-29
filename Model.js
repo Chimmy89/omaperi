@@ -11,11 +11,11 @@ var GLYPH = {
   webcam: "󰄀",
   motherboard: "󰐚",
   memory: "󰍛",
-  gpu: "󰐚",
-  other: "󰆴"
+  gpu: "󰢮",
+  other: "󰘮"
 }
 
-var FALLBACK_GLYPH = "󰆴"
+var FALLBACK_GLYPH = "󰘮"
 
 function glyphFor(kind) {
   return GLYPH[kind] || FALLBACK_GLYPH
