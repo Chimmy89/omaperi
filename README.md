@@ -39,21 +39,45 @@ The widget needs the `omaperi` CLI on `PATH`:
 
 ```bash
 install -Dm755 bin/omaperi ~/.local/bin/omaperi
-omarchy plugin add https://github.com/chimmy89/omaperi.git --enable
+omarchy plugin add https://github.com/Chimmy89/omaperi.git --enable
 ```
 
 Then add it to the bar (Setup → Bar), or put `{"id": "io.github.chimmy89.omaperi"}`
 in `~/.config/omarchy/shell.json`.
 
-Backends are optional and detected at runtime — install only what your hardware
-needs:
+## Dependencies
+
+omaperi itself needs only Python 3 (standard library) and Omarchy Quattro's
+shell. Every backend is optional, detected at runtime, and hidden when absent —
+install only what your hardware needs:
+
+| Backend | Package | Covers | Licence |
+|---|---|---|---|
+| `headsetcontrol` | `headsetcontrol` | wireless headsets | GPL-3.0 |
+| `openrazer` | `openrazer-meta` (AUR) | Razer devices | GPL-2.0 |
+| `openrgb` | `openrgb` | anything OpenRGB sees | GPL-2.0 |
+| `v4l2` | `v4l-utils` | webcams | GPL-2.0 |
 
 ```bash
 sudo pacman -S headsetcontrol openrgb v4l-utils   # as applicable
 yay -S openrazer-meta                             # Razer devices
 ```
 
-`omaperi backends` prints which are live and why the others are not.
+None are bundled or downloaded by omaperi; it only calls them if they are
+already on `PATH`. `omaperi backends` prints which are live and why the others
+are not.
+
+## Removal
+
+```bash
+omarchy plugin remove io.github.chimmy89.omaperi
+rm -f ~/.local/bin/omaperi
+rm -rf ~/.local/state/omaperi     # remembered write-only values and the poll cache
+```
+
+Remove the widget from `bar.layout` in `~/.config/omarchy/shell.json` if you
+added it there by hand. omaperi writes nothing else: no system files, no
+services, no udev rules, and it never edits your configuration for you.
 
 ### Bar presentation
 
