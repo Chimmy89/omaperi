@@ -58,12 +58,21 @@ Panel {
 
   function runArgs(args) {
     if (cli.running) {
-      // Never drop a click; the queue drains in onExited.
+      // Never drop a click; the queue drains after the running call exits.
       root.pending.push(args)
       return
     }
     cli.command = [root.binary].concat(args)
     cli.running = true
+  }
+
+  // `running` is still true inside onExited, so draining directly from there
+  // pushes the queued call straight back onto `pending` and it is never run --
+  // every action after the first one is silently swallowed. Defer until the
+  // process object has settled.
+  function drainPending() {
+    if (cli.running || root.pending.length === 0) return
+    runArgs(root.pending.shift())
   }
 
   function handleOutput(text) {
@@ -89,12 +98,7 @@ Panel {
       waitForEnd: true
       onStreamFinished: if (text && String(text).trim()) root.lastError = String(text).trim()
     }
-    onExited: {
-      if (root.pending.length > 0) {
-        var next = root.pending.shift()
-        root.runArgs(next)
-      }
-    }
+    onExited: Qt.callLater(root.drainPending)
   }
 
   Timer {

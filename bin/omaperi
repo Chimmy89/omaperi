@@ -300,15 +300,23 @@ def razer_device(d):
     battery = None
     if d.has("battery"):
         try:
-            battery = {"level": round(d.battery_level), "charging": bool(d.is_charging)}
+            level = round(d.battery_level)
+            # This driver reports 0 when the dongle is awake but the mouse is
+            # not -- asleep or switched off. A genuinely flat battery would
+            # have passed through 1% first, so 0 means "no reading", and
+            # showing it as 0% fires a false low-battery warning.
+            battery = {"level": level, "charging": bool(d.is_charging)} if level > 0 else None
         except Exception:
             battery = None
 
-    note = None
+    notes = []
+    if d.has("battery") and battery is None:
+        notes.append("Asleep or powered off")
     if not effects:
         # True for anything behind the HyperPolling dongle: openrazer exposes
         # battery/DPI/polling but no lighting endpoints at all.
-        note = "No lighting exposed by openrazer for this device"
+        notes.append("No lighting exposed by openrazer for this device")
+    note = " \u00b7 ".join(notes) or None
 
     return {
         "id": dev_id,

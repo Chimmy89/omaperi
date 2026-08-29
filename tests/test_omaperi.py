@@ -168,5 +168,41 @@ class TestDocumentShape(unittest.TestCase):
         self.assertEqual(device["note"], "Powered off or out of range")
 
 
+class FakeRazer(object):
+    """Minimal stand-in for an openrazer device."""
+
+    def __init__(self, level, caps=("battery", "dpi")):
+        self.name = "Fake Razer"
+        self.type = "mouse"
+        self.serial = "FAKE123"
+        self.dpi = (800, 800)
+        self.max_dpi = 30000
+        self.supported_poll_rates = [125, 1000]
+        self.poll_rate = 1000
+        self.battery_level = level
+        self.is_charging = False
+        self._caps = caps
+
+    def has(self, cap):
+        return cap in self._caps
+
+    def get_idle_time(self):
+        raise RuntimeError("not supported")
+
+
+class TestRazerSleepingBattery(unittest.TestCase):
+    def test_zero_means_asleep_not_flat(self):
+        # The dongle reports 0 while the mouse sleeps. Showing that as 0%
+        # fires a false low-battery warning in the bar.
+        device = omaperi.razer_device(FakeRazer(0))
+        self.assertIsNone(device["battery"])
+        self.assertIn("Asleep or powered off", device["note"])
+
+    def test_real_level_is_reported(self):
+        device = omaperi.razer_device(FakeRazer(87))
+        self.assertEqual(device["battery"], {"level": 87, "charging": False})
+        self.assertNotIn("Asleep", device["note"] or "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
