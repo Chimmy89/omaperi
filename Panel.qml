@@ -87,6 +87,9 @@ Panel {
   }
 
   function handleOutput(text) {
+    // A failed run prints nothing on stdout; leave lastError alone so stderr's
+    // message survives instead of being replaced by "unreadable output".
+    if (!String(text || "").trim()) return
     var parsed = Model.parseDocument(text)
     if (parsed.error) {
       root.lastError = parsed.error
@@ -109,8 +112,11 @@ Panel {
       waitForEnd: true
       onStreamFinished: if (text && String(text).trim()) root.lastError = String(text).trim()
     }
-    onExited: {
+    onExited: function (exitCode) {
       root.busyKey = ""
+      if (exitCode !== 0 && root.lastError === "") {
+        root.lastError = "omaperi exited with status " + exitCode
+      }
       Qt.callLater(root.drainPending)
     }
   }
@@ -210,10 +216,37 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(14)
 
+        // Errors used to render only when the device list was empty, so a
+        // failed apply showed nothing at all. Clears on the next good poll.
+        Rectangle {
+          width: parent.width
+          visible: root.lastError !== ""
+          implicitHeight: errorText.implicitHeight + Style.space(14)
+          height: visible ? implicitHeight : 0
+          radius: Style.cornerRadius
+          color: "transparent"
+          border.width: 1
+          border.color: Color.urgent
+
+          Text {
+            id: errorText
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.space(8)
+            anchors.rightMargin: Style.space(8)
+            text: root.lastError
+            color: Color.urgent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+
         Text {
           width: parent.width
-          visible: root.devices.length === 0
-          text: root.lastError !== "" ? root.lastError : "No peripherals detected"
+          visible: root.devices.length === 0 && root.lastError === ""
+          text: "No peripherals detected"
           color: Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.body
