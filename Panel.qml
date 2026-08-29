@@ -416,9 +416,18 @@ Panel {
                     step: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
                     value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
                            ? ctlBlock.ctl.value : minimum
-                    // Apply on release only: dragging would fire a subprocess per pixel.
-                    onReleased: function (v) {
-                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, Math.round(v))
+                    // Dragging emits moved(), not released(), so a drag is one
+                    // apply. The scroll wheel is the problem: PanelSlider fires
+                    // released() on every tick, so a flick of the wheel would be
+                    // one subprocess per notch. Coalesce into the last value.
+                    onReleased: function (v) { commit.pending = Math.round(v); commit.restart() }
+
+                    Timer {
+                      id: commit
+                      property int pending: 0
+                      interval: 140
+                      repeat: false
+                      onTriggered: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, commit.pending)
                     }
                   }
                   }
@@ -522,9 +531,15 @@ Panel {
                     maximum: 359
                     step: 1
                     value: Model.hueOf(ctlBlock.ctl.value)
-                    onReleased: function (v) {
-                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
-                                 Model.hsvToHex(Math.round(v), 1, 1))
+                    onReleased: function (v) { hueCommit.pending = Math.round(v); hueCommit.restart() }
+
+                    Timer {
+                      id: hueCommit
+                      property int pending: 0
+                      interval: 140
+                      repeat: false
+                      onTriggered: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                              Model.hsvToHex(hueCommit.pending, 1, 1))
                     }
                   }
                   }
