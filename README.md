@@ -72,7 +72,7 @@ yay -S openrazer-meta                             # Razer devices
 omaperi status                        # capability document as JSON
 omaperi backends                      # adapter availability
 omaperi apply v4l2:video0 brightness 180
-omaperi apply headset:046d:0af7 eq_preset 1
+omaperi apply headset:<vid>:<pid> eq_preset 1   # ids come from `omaperi status`
 ```
 
 ## Notes

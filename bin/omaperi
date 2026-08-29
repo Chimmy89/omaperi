@@ -818,6 +818,21 @@ def find_device(doc, device_id):
     raise SystemExit("no such device: %s" % device_id)
 
 
+def find_control(dev, key):
+    """Only keys the device actually advertises may be applied.
+
+    Without this the key goes straight into the vendor command. v4l2-ctl -c
+    takes a comma-separated list, so a crafted key could set controls that
+    were never offered. Everything here runs as the user already, so this is
+    robustness rather than a privilege boundary -- but a control that was not
+    offered should not be settable.
+    """
+    for c in dev.get("controls", []):
+        if c["key"] == key:
+            return c
+    raise SystemExit("%s has no control %r" % (dev["id"], key))
+
+
 def main(argv):
     command = argv[1] if len(argv) > 1 else "status"
 
@@ -838,6 +853,9 @@ def main(argv):
         device_id, key, value = argv[2], argv[3], argv[4]
         doc = cached_document(max_age=float("inf"))
         dev = find_device(doc, device_id)
+        control_spec = find_control(dev, key)
+        if control_spec["type"] == "readout":
+            raise SystemExit("%s/%s is read-only" % (device_id, key))
         ADAPTERS[dev["backend"]][2](dev, key, value)
         refresh_backend(doc, dev["backend"])
         write_cache(doc)

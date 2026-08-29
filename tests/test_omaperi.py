@@ -236,6 +236,28 @@ class TestRazerSleepingBattery(unittest.TestCase):
         self.assertNotIn("Asleep", device["note"] or "")
 
 
+class TestControlValidation(unittest.TestCase):
+    DEVICE = {
+        "id": "v4l2:video0",
+        "controls": [
+            {"key": "brightness", "type": "range"},
+            {"key": "mode", "type": "readout"},
+        ],
+    }
+
+    def test_known_control_is_returned(self):
+        self.assertEqual(omaperi.find_control(self.DEVICE, "brightness")["type"], "range")
+
+    def test_unknown_control_is_refused(self):
+        with self.assertRaises(SystemExit):
+            omaperi.find_control(self.DEVICE, "nope")
+
+    def test_a_crafted_key_cannot_smuggle_extra_controls(self):
+        # v4l2-ctl -c takes a comma-separated list, so this must not reach it.
+        with self.assertRaises(SystemExit):
+            omaperi.find_control(self.DEVICE, "brightness=1,contrast=90")
+
+
 class TestBackendListing(unittest.TestCase):
     def test_dummy_is_not_listed_as_inactive(self):
         # It is off on purpose; reporting it would read as a broken dependency.
