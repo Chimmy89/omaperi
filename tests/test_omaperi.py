@@ -168,6 +168,38 @@ class TestDocumentShape(unittest.TestCase):
         self.assertEqual(device["note"], "Powered off or out of range")
 
 
+class TestOpenRGBKinds(unittest.TestCase):
+    def test_mapped_type_becomes_its_kind(self):
+        device = omaperi.orgb_device({
+            "index": 3, "name": "Some Fan", "type": "Cooler",
+            "modes": ["Direct"], "active_mode": "Direct"})
+        self.assertEqual(device["kind"], "cooler")
+        # Nothing to fall back to: the kind already names it.
+        self.assertIsNone(device["type_label"])
+
+    def test_unmapped_type_keeps_the_name_openrgb_gave_it(self):
+        device = omaperi.orgb_device({
+            "index": 4, "name": "Odd Device", "type": "Thermometer",
+            "modes": [], "active_mode": None})
+        self.assertEqual(device["kind"], "other")
+        self.assertEqual(device["type_label"], "Thermometer")
+
+    def test_single_mode_is_a_readout_not_a_dropdown(self):
+        device = omaperi.orgb_device({
+            "index": 1, "name": "Kbd", "type": "Keyboard",
+            "modes": ["Direct"], "active_mode": "Direct"})
+        mode = [c for c in device["controls"] if c["key"] == "mode"][0]
+        self.assertEqual(mode["type"], "readout")
+
+    def test_several_modes_stay_a_dropdown(self):
+        device = omaperi.orgb_device({
+            "index": 1, "name": "Kbd", "type": "Keyboard",
+            "modes": ["Off", "Static", "Direct"], "active_mode": "Static"})
+        mode = [c for c in device["controls"] if c["key"] == "mode"][0]
+        self.assertEqual(mode["type"], "enum")
+        self.assertEqual(mode["value"], "Static")
+
+
 class FakeRazer(object):
     """Minimal stand-in for an openrazer device."""
 

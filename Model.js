@@ -12,6 +12,14 @@ var GLYPH = {
   motherboard: "󰐚",
   memory: "󰍛",
   gpu: "󰢮",
+  cooler: "󰈐",
+  light: "󰌵",
+  speaker: "󰓃",
+  storage: "󰋊",
+  microphone: "󰍬",
+  gamepad: "󰊴",
+  case: "󰟀",
+  mousemat: "󰝤",
   other: "󰘮"
 }
 
@@ -162,11 +170,22 @@ var KIND_LABEL = {
   motherboard: "Board",
   memory: "RAM",
   gpu: "GPU",
+  cooler: "Cooler",
+  light: "Lighting",
+  speaker: "Speaker",
+  storage: "Storage",
+  microphone: "Mic",
+  gamepad: "Gamepad",
+  case: "Case",
+  mousemat: "Mousemat",
   other: "Device"
 }
 
-function kindLabel(kind) {
-  return KIND_LABEL[kind] || "Device"
+// Prefer whatever the backend called the device type over a generic word, so
+// an OpenRGB type omaperi does not map still reads as itself.
+function kindLabel(device) {
+  if (device.type_label) return String(device.type_label)
+  return KIND_LABEL[device.kind] || "Device"
 }
 
 function shortenName(name) {
@@ -185,7 +204,7 @@ function kindIsUnique(devices, kind) {
 
 function tabLabel(devices, device) {
   var base = kindIsUnique(devices, device.kind)
-             ? kindLabel(device.kind)
+             ? kindLabel(device)
              : shortenName(device.name)
   var label = glyphFor(device.kind) + "  " + base
   if (device.battery && typeof device.battery.level === "number" && device.battery.level >= 0) {

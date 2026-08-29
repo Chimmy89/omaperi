@@ -79,6 +79,12 @@ You do **not** edit `Panel.qml`, `Model.js`, or the manifest.
 - **Never shell out on import.** Enumeration happens in `devices()`, behind the
   poll lock and cache.
 
+## Exercising the panel without hardware
+
+`OMAPERI_DUMMY=1 omaperi status` adds a fake device carrying one of every
+control type, including a deliberately unmapped `kind`, so a new control type
+or a panel change can be checked with nothing plugged in.
+
 ## Control types
 
 | Type | Renders as | Required fields |

@@ -470,13 +470,26 @@ def parse_openrgb(text):
     return devices
 
 
+# OpenRGB's own device types. Anything missing here still gets a tab, labelled
+# with the type OpenRGB reported rather than a generic "Device".
 ORGB_KIND = {
-    "Keyboard": "keyboard",
-    "Mouse": "mouse",
     "Motherboard": "motherboard",
     "DRAM": "memory",
     "GPU": "gpu",
+    "Cooler": "cooler",
+    "LEDStrip": "light",
+    "Keyboard": "keyboard",
+    "Mouse": "mouse",
+    "MouseMat": "mousemat",
     "Headset": "headset",
+    "HeadsetStand": "headset",
+    "Gamepad": "gamepad",
+    "Light": "light",
+    "Speaker": "speaker",
+    "Storage": "storage",
+    "Case": "case",
+    "Microphone": "microphone",
+    "Keypad": "keyboard",
 }
 
 
@@ -484,8 +497,10 @@ def orgb_devices():
     rc, out, _ = run(["openrgb", "--list-devices"], timeout=45)
     if rc != 0:
         return []
-    devices = []
-    for d in parse_openrgb(out):
+    return [orgb_device(d) for d in parse_openrgb(out)]
+
+
+def orgb_device(d):
         dev_id = "openrgb:%d" % d["index"]
         controls = [
             control("color", "Colour", "color",
@@ -503,16 +518,17 @@ def orgb_devices():
             # OpenRGB keyboard protocols expose only Direct, meaning effects
             # have to be animated by software rather than the firmware.
             controls.insert(0, control("mode", "Mode", "readout", value=d["modes"][0]))
-        devices.append({
+        return {
             "id": dev_id,
             "name": d["name"],
             "kind": ORGB_KIND.get(d["type"], "other"),
+            # Carried so an unmapped type still reads as itself in the tab.
+            "type_label": None if d["type"] in ORGB_KIND else (d["type"] or None),
             "backend": "openrgb",
             "battery": None,
             "controls": controls,
             "note": None,
-        })
-    return devices
+        }
 
 
 def orgb_apply(dev, key, value):
@@ -652,6 +668,53 @@ def v4l2_apply(dev, key, value):
 
 
 # --------------------------------------------------------------------------
+# dummy — every control type, no hardware
+# --------------------------------------------------------------------------
+
+
+def dummy_available():
+    """Off unless OMAPERI_DUMMY=1, so it never shows up by accident."""
+    if os.environ.get("OMAPERI_DUMMY") != "1":
+        return False, "set OMAPERI_DUMMY=1 to enable"
+    return True, None
+
+
+def dummy_devices():
+    dev_id = "dummy:0"
+    return [{
+        "id": dev_id,
+        "name": "Dummy Thermal Widget",
+        # Deliberately a kind omaperi does not map, to exercise the fallback.
+        "kind": "other",
+        "type_label": "Thermometer",
+        "backend": "dummy",
+        "battery": {"level": int(remembered(dev_id, "level", 55)), "charging": False},
+        "controls": [
+            control("level", "Level", "range", min=0, max=100, step=1,
+                    unit="%", value=int(remembered(dev_id, "level", 55))),
+            control("profile", "Profile", "enum", value=remembered(dev_id, "profile", "quiet"),
+                    options=[{"value": "quiet", "label": "Quiet"},
+                             {"value": "balanced", "label": "Balanced"},
+                             {"value": "turbo", "label": "Turbo"}]),
+            control("enabled", "Enabled", "toggle",
+                    value=bool(remembered(dev_id, "enabled", True))),
+            control("identify", "Identify", "action"),
+            control("uptime", "Uptime", "readout", value="3d 4h"),
+            control("color", "Colour", "color", value=remembered(dev_id, "color", "#00ff88")),
+        ],
+        "note": None,
+    }]
+
+
+def dummy_apply(dev, key, value):
+    if key == "enabled":
+        value = str(value).lower() in ("1", "true", "on", "yes")
+    elif key == "level":
+        value = int(value)
+    remember(dev["id"], key, value)
+
+
+# --------------------------------------------------------------------------
 # adapter registry
 # --------------------------------------------------------------------------
 
@@ -660,9 +723,12 @@ ADAPTERS = {
     "openrazer": (razer_available, razer_devices, razer_apply),
     "openrgb": (orgb_available, orgb_devices, orgb_apply),
     "v4l2": (v4l2_available, v4l2_devices, v4l2_apply),
+    "dummy": (dummy_available, dummy_devices, dummy_apply),
 }
 
-KIND_ORDER = ["headset", "mouse", "keyboard", "webcam", "motherboard", "memory", "gpu", "other"]
+KIND_ORDER = ["headset", "mouse", "mousemat", "keyboard", "webcam", "microphone",
+              "speaker", "gamepad", "light", "cooler", "case", "motherboard",
+              "memory", "gpu", "storage", "other"]
 
 
 def build_document():

@@ -80,6 +80,10 @@ omaperi apply headset:046d:0af7 eq_preset 1
 - **OpenRGB is much faster with its server running.** Cold detection costs about
   1.4 s per call; against a running SDK server it is about 20 ms. Start it with
   `openrgb --server --startminimized` (that also gives you a tray icon).
+- **OpenRGB colour cannot be read back.** OpenRGB has no state dump — only a
+  binary `.orp` profile and an SDK server that is not running as a service on
+  most systems — so the colour chip shows what omaperi last set rather than
+  what the device is currently displaying.
 - **Some controls are write-only.** `headsetcontrol` can set sidetone but cannot
   read it back, so omaperi remembers what it last sent in
   `~/.local/state/omaperi/state.json` and shows that.
@@ -89,6 +93,16 @@ omaperi apply headset:046d:0af7 eq_preset 1
 - **Polling is locked and cached.** The bar runs one widget instance per monitor,
   and two concurrent `headsetcontrol` calls fight over the same HID device and
   both return empty — which reads exactly like "device is off".
+
+## Testing without hardware
+
+```bash
+OMAPERI_DUMMY=1 omaperi status
+```
+
+registers one fake device exercising every control type — range, enum, toggle,
+action, readout and colour — so the panel can be worked on with nothing
+plugged in. It is off unless that variable is set.
 
 ## Adding a device
 
