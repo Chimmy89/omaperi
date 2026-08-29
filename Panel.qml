@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -209,12 +210,24 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
 
-      Column {
-        id: column
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        spacing: Style.space(14)
+      // fittedContentHeight caps the card to what fits on screen, so a tall
+      // device -- the webcam has ten controls -- was simply cut off with no
+      // way to reach the rest. Scroll instead, and only when it overflows.
+      Flickable {
+        id: scroll
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+
+        ScrollIndicator.vertical: ScrollIndicator {}
+
+        Column {
+          id: column
+          width: scroll.width
+          spacing: Style.space(14)
 
         // Errors used to render only when the device list was empty, so a
         // failed apply showed nothing at all. Clears on the next good poll.
@@ -456,6 +469,7 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
+        }
         }
       }
     }
