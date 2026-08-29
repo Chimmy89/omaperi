@@ -146,6 +146,7 @@ function displayValue(control) {
     return "—"
   }
   if (control.type === "readout") return String(control.value)
+  if (control.type === "color") return String(control.value || "")
   return ""
 }
 
@@ -208,6 +209,47 @@ function findDevice(devices, id) {
     if (devices[i].id === id) return devices[i]
   }
   return null
+}
+
+// Swatches cover the common picks; the hue slider covers everything between.
+// Saturation and value stay at full: pastels and off-whites are what the
+// swatch row is for.
+function hsvToHex(h, sat, val) {
+  var c = val * sat
+  var x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  var m = val - c
+  var r = 0, g = 0, b = 0
+  if (h < 60)       { r = c; g = x }
+  else if (h < 120) { r = x; g = c }
+  else if (h < 180) { g = c; b = x }
+  else if (h < 240) { g = x; b = c }
+  else if (h < 300) { r = x; b = c }
+  else              { r = c; b = x }
+  return "#" + pad2(Math.round((r + m) * 255))
+             + pad2(Math.round((g + m) * 255))
+             + pad2(Math.round((b + m) * 255))
+}
+
+function pad2(n) {
+  var s = Math.max(0, Math.min(255, n)).toString(16)
+  return s.length < 2 ? "0" + s : s
+}
+
+// Hue of a "#rrggbb", so the slider starts where the current colour is.
+function hueOf(hex) {
+  var v = String(hex || "").replace("#", "")
+  if (v.length !== 6) return 0
+  var r = parseInt(v.substring(0, 2), 16) / 255
+  var g = parseInt(v.substring(2, 4), 16) / 255
+  var b = parseInt(v.substring(4, 6), 16) / 255
+  var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  if (d === 0) return 0
+  var h
+  if (max === r) h = ((g - b) / d) % 6
+  else if (max === g) h = (b - r) / d + 2
+  else h = (r - g) / d + 4
+  h = Math.round(h * 60)
+  return h < 0 ? h + 360 : h
 }
 
 var SWATCHES = [

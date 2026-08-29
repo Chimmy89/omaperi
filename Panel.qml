@@ -372,87 +372,161 @@ Panel {
                     font.pixelSize: Style.font.subtitle
                   }
 
-                  Text {
+                  Row {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Model.displayValue(ctlBlock.ctl)
-                    color: Color.foreground
-                    opacity: 0.7
-                    font.family: Style.font.family
-                    font.pixelSize: Style.font.caption
+                    spacing: Style.space(6)
+
+                    // No colour can be read back from OpenRGB without its SDK
+                    // server, so this chip shows what omaperi last set --
+                    // which is why it is worth showing at all.
+                    Rectangle {
+                      visible: ctlBlock.ctl.type === "color"
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(14)
+                      height: Style.space(14)
+                      radius: Style.cornerRadius > 0 ? Style.space(3) : 0
+                      color: String(ctlBlock.ctl.value || "#000000")
+                      border.width: 1
+                      border.color: Color.popups.border
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: Model.displayValue(ctlBlock.ctl)
+                      color: Color.foreground
+                      opacity: 0.7
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                    }
                   }
                 }
 
-                PanelSlider {
-                  visible: ctlBlock.ctl.type === "range"
+                Loader {
                   width: parent.width
-                  bar: root.bar
-                  integer: true
-                  minimum: ctlBlock.ctl.min !== undefined ? ctlBlock.ctl.min : 0
-                  maximum: ctlBlock.ctl.max !== undefined ? ctlBlock.ctl.max : 100
-                  step: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
-                  value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
-                         ? ctlBlock.ctl.value : minimum
-                  // Apply on release only: dragging would fire a subprocess per pixel.
-                  onReleased: function (v) {
-                    root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, Math.round(v))
+                  active: ctlBlock.ctl.type === "range"
+                  visible: active
+                  sourceComponent: Component {
+                  PanelSlider {
+                    width: parent.width
+                    bar: root.bar
+                    integer: true
+                    minimum: ctlBlock.ctl.min !== undefined ? ctlBlock.ctl.min : 0
+                    maximum: ctlBlock.ctl.max !== undefined ? ctlBlock.ctl.max : 100
+                    step: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
+                    value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
+                           ? ctlBlock.ctl.value : minimum
+                    // Apply on release only: dragging would fire a subprocess per pixel.
+                    onReleased: function (v) {
+                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, Math.round(v))
+                    }
+                  }
                   }
                 }
 
-                Dropdown {
-                  visible: ctlBlock.ctl.type === "enum"
+                Loader {
                   width: parent.width
-                  label: ctlBlock.ctl.label
-                  options: Model.dropdownOptions(ctlBlock.ctl)
-                  value: String(ctlBlock.ctl.value)
-                  onChanged: function (v) {
-                    root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                  active: ctlBlock.ctl.type === "enum"
+                  visible: active
+                  sourceComponent: Component {
+                  Dropdown {
+                    width: parent.width
+                    label: ctlBlock.ctl.label
+                    options: Model.dropdownOptions(ctlBlock.ctl)
+                    value: String(ctlBlock.ctl.value)
+                    onChanged: function (v) {
+                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                    }
+                  }
                   }
                 }
 
-                Toggle {
-                  visible: ctlBlock.ctl.type === "toggle"
+                Loader {
                   width: parent.width
-                  label: ctlBlock.ctl.label
-                  checked: ctlBlock.ctl.value === true
-                  onClicked: {
-                    root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
-                               ctlBlock.ctl.value === true ? "false" : "true")
+                  active: ctlBlock.ctl.type === "toggle"
+                  visible: active
+                  sourceComponent: Component {
+                  Toggle {
+                    width: parent.width
+                    label: ctlBlock.ctl.label
+                    checked: ctlBlock.ctl.value === true
+                    onClicked: {
+                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                 ctlBlock.ctl.value === true ? "false" : "true")
+                    }
+                  }
                   }
                 }
 
-                Button {
-                  visible: ctlBlock.ctl.type === "action"
+                Loader {
                   width: parent.width
-                  text: ctlBlock.ctl.label
-                  onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, "1")
+                  active: ctlBlock.ctl.type === "action"
+                  visible: active
+                  sourceComponent: Component {
+                  Button {
+                    width: parent.width
+                    text: ctlBlock.ctl.label
+                    onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, "1")
+                  }
+                  }
                 }
 
-                Row {
-                  visible: ctlBlock.ctl.type === "color"
+                Loader {
                   width: parent.width
-                  spacing: Style.space(6)
+                  active: ctlBlock.ctl.type === "color"
+                  visible: active
+                  sourceComponent: Component {
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(6)
 
-                  Repeater {
-                    model: Model.SWATCHES
-                    delegate: Rectangle {
-                      id: swatch
-                      required property var modelData
-                      width: Style.space(26)
-                      height: Style.space(20)
-                      radius: Style.cornerRadius > 0 ? Style.space(4) : 0
-                      color: swatch.modelData
-                      border.width: String(ctlBlock.ctl.value).toLowerCase()
-                                    === String(swatch.modelData).toLowerCase() ? 2 : 0
-                      border.color: Color.foreground
+                    Repeater {
+                      model: Model.SWATCHES
+                      delegate: Rectangle {
+                        id: swatch
+                        required property var modelData
+                        width: Style.space(26)
+                        height: Style.space(20)
+                        radius: Style.cornerRadius > 0 ? Style.space(4) : 0
+                        color: swatch.modelData
+                        border.width: String(ctlBlock.ctl.value).toLowerCase()
+                                      === String(swatch.modelData).toLowerCase() ? 2 : 0
+                        border.color: Color.foreground
 
-                      MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
-                                              swatch.modelData)
+                        MouseArea {
+                          anchors.fill: parent
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                                swatch.modelData)
+                        }
                       }
                     }
+                  }
+                  }
+                }
+
+                // Anything between the swatches. Full saturation and value on
+                // purpose: the swatch row is where white and the muted picks
+                // live, so one slider is enough here.
+                Loader {
+                  width: parent.width
+                  active: ctlBlock.ctl.type === "color"
+                  visible: active
+                  sourceComponent: Component {
+                  PanelSlider {
+                    visible: ctlBlock.ctl.type === "color"
+                    width: parent.width
+                    bar: root.bar
+                    integer: true
+                    minimum: 0
+                    maximum: 359
+                    step: 1
+                    value: Model.hueOf(ctlBlock.ctl.value)
+                    onReleased: function (v) {
+                      root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                 Model.hsvToHex(Math.round(v), 1, 1))
+                    }
+                  }
                   }
                 }
               }
