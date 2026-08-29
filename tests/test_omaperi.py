@@ -236,5 +236,12 @@ class TestRazerSleepingBattery(unittest.TestCase):
         self.assertNotIn("Asleep", device["note"] or "")
 
 
+class TestBackendListing(unittest.TestCase):
+    def test_dummy_is_not_listed_as_inactive(self):
+        # It is off on purpose; reporting it would read as a broken dependency.
+        names = [b["name"] for b in omaperi.build_document()["backends"]]
+        self.assertNotIn("dummy", names)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

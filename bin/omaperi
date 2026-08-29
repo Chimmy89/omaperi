@@ -735,7 +735,10 @@ def build_document():
     devices, backends = [], []
     for name, (available, enumerate_devices, _apply) in ADAPTERS.items():
         ok, reason = available()
-        backends.append({"name": name, "available": ok, "reason": reason})
+        # The dummy is a development aid and is meant to be off, so listing it
+        # as an inactive backend would read as something being wrong.
+        if name != "dummy" or ok:
+            backends.append({"name": name, "available": ok, "reason": reason})
         if not ok:
             continue
         try:
