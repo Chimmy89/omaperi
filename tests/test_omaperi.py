@@ -248,6 +248,10 @@ class FakeRazer(object):
     def get_idle_time(self):
         raise RuntimeError("not supported")
 
+    @property
+    def dpi_stages(self):
+        return (2, [(750, 750), (800, 800), (850, 850)])
+
 
 class TestRazerSleepingBattery(unittest.TestCase):
     def test_zero_means_asleep_not_flat(self):
@@ -438,6 +442,24 @@ class TestEffects(unittest.TestCase):
         job = {"effect": "static", "base": (18, 52, 86), "speed": 50}
         self.assertEqual(omaperi.effect_frame(job, 2, 0.7),
                          [omaperi.rgb(18, 52, 86)] * 2)
+
+
+class TestRazerDpiStages(unittest.TestCase):
+    def test_stage_values_are_read_in_order(self):
+        fake = FakeRazer(100, caps=("battery", "dpi", "dpi_stages"))
+        self.assertEqual(omaperi.razer_dpi_stages(fake), [750, 800, 850])
+
+    def test_absent_capability_gives_no_stages(self):
+        self.assertEqual(omaperi.razer_dpi_stages(FakeRazer(100)), [])
+
+    def test_the_stage_index_is_one_based(self):
+        # Confirmed on hardware: writing 1 selected 750 and writing 2 selected
+        # 800, against stages [750, 800, 850, 900, 950]. Getting this wrong
+        # moves the mouse to the neighbouring stage.
+        stages = omaperi.razer_dpi_stages(
+            FakeRazer(100, caps=("battery", "dpi", "dpi_stages")))
+        self.assertEqual(stages.index(750) + omaperi.DPI_STAGE_BASE, 1)
+        self.assertEqual(stages.index(850) + omaperi.DPI_STAGE_BASE, 3)
 
 
 class TestControlValidation(unittest.TestCase):

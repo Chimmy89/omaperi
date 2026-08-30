@@ -478,14 +478,14 @@ def razer_device(d):
     }
 
 
-def razer_dpi_stages(d):
-    """The X values of the mouse's onboard DPI stages, in order.
+# openrazer returns (active_index, [(x, y), ...]) and the index is ONE-based:
+# writing 1 selects the first stage. Confirmed on hardware -- writing 1 put the
+# mouse on 750 and writing 2 on 800, against stages [750, 800, 850, 900, 950].
+DPI_STAGE_BASE = 1
 
-    openrazer returns (active_index, [(x, y), ...]). The index base is not
-    documented consistently across models, so omaperi never writes it back --
-    picking a preset just sets the DPI to that stage's value, which every
-    model handles the same way.
-    """
+
+def razer_dpi_stages(d):
+    """The X values of the mouse's onboard DPI stages, in order."""
     try:
         if not d.has("dpi_stages"):
             return []
@@ -541,7 +541,18 @@ def razer_apply(dev, key, value):
     if razer_asleep(target):
         raise SystemExit("%s is asleep -- wake it and try again" % dev["name"])
 
-    if key in ("dpi", "dpi_stage"):
+    if key == "dpi_stage":
+        # Move the mouse's own stage pointer, not just the live DPI, so its
+        # DPI button keeps cycling from where the panel left off. Setting the
+        # stage sets the resolution too.
+        wanted = int(value)
+        stages = razer_dpi_stages(target)
+        if wanted in stages:
+            _active, pairs = target.dpi_stages
+            target.dpi_stages = (stages.index(wanted) + DPI_STAGE_BASE, pairs)
+        else:
+            target.dpi = (wanted, wanted)
+    elif key == "dpi":
         target.dpi = (int(value), int(value))
     elif key == "poll_rate":
         target.poll_rate = int(value)
