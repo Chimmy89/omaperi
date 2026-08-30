@@ -350,6 +350,12 @@ Panel {
               required property var modelData
               readonly property var ctl: ctlBlock.modelData
               readonly property string deviceId: root.selectedId
+              // Live picker position, seeded from the control's value and
+              // reseeded whenever a poll rebuilds this delegate.
+              property real pickH: Model.hueOf(ctlBlock.ctl.value)
+              property real pickS: Model.satOf(ctlBlock.ctl.value)
+              property real pickV: Model.valOf(ctlBlock.ctl.value)
+
               readonly property bool busy: root.busyKey !== ""
                                            && root.busyKey === ctlBlock.deviceId + "/" + ctlBlock.ctl.key
               width: deviceBlock.width
@@ -567,34 +573,104 @@ Panel {
                   }
                 }
 
-                // Anything between the swatches. Full saturation and value on
-                // purpose: the swatch row is where white and the muted picks
-                // live, so one slider is enough here.
+                // Saturation/value pad: the standard picker. Hue comes from
+                // the slider below, so between them any colour is reachable,
+                // not just the eight swatches.
                 Loader {
                   width: parent.width
                   active: ctlBlock.ctl.type === "color"
                   visible: active
                   sourceComponent: Component {
-                  PanelSlider {
-                    visible: ctlBlock.ctl.type === "color"
-                    width: parent.width
-                    bar: root.bar
-                    integer: true
-                    minimum: 0
-                    maximum: 359
-                    step: 1
-                    value: Model.hueOf(ctlBlock.ctl.value)
-                    onReleased: function (v) { hueCommit.pending = Math.round(v); hueCommit.restart() }
+                    Rectangle {
+                      id: pad
+                      width: parent.width
+                      height: Style.space(96)
+                      radius: Style.cornerRadius > 0 ? Style.space(4) : 0
+                      color: Model.hsvToHex(ctlBlock.pickH, 1, 1)
+                      clip: true
 
-                    Timer {
-                      id: hueCommit
-                      property int pending: 0
-                      interval: 140
-                      repeat: false
-                      onTriggered: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
-                                              Model.hsvToHex(hueCommit.pending, 1, 1))
+                      Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                          orientation: Gradient.Horizontal
+                          GradientStop { position: 0.0; color: "#ffffffff" }
+                          GradientStop { position: 1.0; color: "#00ffffff" }
+                        }
+                      }
+
+                      Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                          GradientStop { position: 0.0; color: "#00000000" }
+                          GradientStop { position: 1.0; color: "#ff000000" }
+                        }
+                      }
+
+                      Rectangle {
+                        width: Style.space(12)
+                        height: width
+                        radius: width / 2
+                        color: "transparent"
+                        border.width: 2
+                        // Dark ring on a pale patch and vice versa, so the
+                        // marker stays visible in every corner of the pad.
+                        border.color: ctlBlock.pickV > 0.55 && ctlBlock.pickS < 0.55
+                                      ? "#000000" : "#ffffff"
+                        x: ctlBlock.pickS * (pad.width - width)
+                        y: (1 - ctlBlock.pickV) * (pad.height - height)
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.CrossCursor
+
+                        function pick(mx, my) {
+                          ctlBlock.pickS = Math.max(0, Math.min(1, mx / pad.width))
+                          ctlBlock.pickV = 1 - Math.max(0, Math.min(1, my / pad.height))
+                        }
+
+                        onPressed: function (m) { pick(m.x, m.y) }
+                        onPositionChanged: function (m) { if (pressed) pick(m.x, m.y) }
+                        onReleased: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                               Model.hsvToHex(ctlBlock.pickH,
+                                                              ctlBlock.pickS,
+                                                              ctlBlock.pickV))
+                      }
                     }
                   }
+                }
+
+                Loader {
+                  width: parent.width
+                  active: ctlBlock.ctl.type === "color"
+                  visible: active
+                  sourceComponent: Component {
+                    PanelSlider {
+                      width: parent.width
+                      bar: root.bar
+                      integer: true
+                      minimum: 0
+                      maximum: 359
+                      step: 1
+                      value: ctlBlock.pickH
+                      onReleased: function (v) { hueCommit.pending = Math.round(v); hueCommit.restart() }
+
+                      Timer {
+                        id: hueCommit
+                        property int pending: 0
+                        interval: 140
+                        repeat: false
+                        // Keep the pad's saturation and value, so sliding hue
+                        // does not snap back to a vivid colour.
+                        onTriggered: {
+                          ctlBlock.pickH = hueCommit.pending
+                          root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
+                                     Model.hsvToHex(ctlBlock.pickH,
+                                                    ctlBlock.pickS,
+                                                    ctlBlock.pickV))
+                        }
+                      }
+                    }
                   }
                 }
               }

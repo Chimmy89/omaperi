@@ -271,6 +271,29 @@ function hueOf(hex) {
   return h < 0 ? h + 360 : h
 }
 
+// Saturation and value of a "#rrggbb", so a picker can start where the
+// current colour is rather than snapping to a corner.
+function satOf(hex) {
+  var c = rgbOf(hex)
+  var max = Math.max(c.r, c.g, c.b)
+  return max === 0 ? 0 : (max - Math.min(c.r, c.g, c.b)) / max
+}
+
+function valOf(hex) {
+  var c = rgbOf(hex)
+  return Math.max(c.r, c.g, c.b)
+}
+
+function rgbOf(hex) {
+  var v = String(hex || "").replace("#", "")
+  if (v.length !== 6) return { r: 0, g: 0, b: 0 }
+  return {
+    r: parseInt(v.substring(0, 2), 16) / 255,
+    g: parseInt(v.substring(2, 4), 16) / 255,
+    b: parseInt(v.substring(4, 6), 16) / 255
+  }
+}
+
 var SWATCHES = [
   "#ff0033", "#ff7700", "#ffdd00", "#00ff88",
   "#00ddff", "#3355ff", "#aa44ff", "#ffffff"
