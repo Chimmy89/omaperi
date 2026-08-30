@@ -212,6 +212,13 @@ python3 tests/test_omaperi.py
 
 No hardware or network needed — they cover the two hand-written parsers.
 
+## Author
+
+Kim (<kimryen@gmail.com>) — <https://github.com/Chimmy89>
+
+Bug reports and feature requests are best filed as
+[issues](https://github.com/Chimmy89/omaperi/issues); mail is fine too.
+
 ## License
 
-MIT
+MIT © Kim

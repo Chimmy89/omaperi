@@ -3,7 +3,7 @@
   "id": "io.github.chimmy89.omaperi",
   "name": "omaperi",
   "version": "0.1.0",
-  "author": "Chimmy89",
+  "author": "Kim (Chimmy89) <kimryen@gmail.com>",
   "license": "MIT",
   "description": "One bar widget for every peripheral. Headsets, mice, keyboards and webcams in a single panel that renders whatever each device actually exposes \u2014 sidetone and EQ presets, DPI and polling rate, lighting, webcam image settings \u2014 via headsetcontrol, OpenRazer, OpenRGB and v4l2.",
   "kinds": [
