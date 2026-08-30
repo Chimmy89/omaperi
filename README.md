@@ -110,6 +110,16 @@ If you want the exact count anyway, turn on **Show advanced controls** in the
 widget's settings. Sizes live in OpenRGB, so save a profile there to keep them
 across restarts of the server.
 
+### Headers you do not use
+
+A motherboard exposes every addressable header it has, and most of them have
+nothing plugged in. Each one has an **Off** state that sizes the channel to
+nothing, and an Off header collapses to a single row instead of a colour
+picker — so a board with one strip on it reads as one strip, not four.
+
+Turning it back on is the same control: pick any other state and the channel
+sizes itself again.
+
 ### Lighting effects
 
 Most controllers expose no firmware effects at all — OpenRGB reports a single

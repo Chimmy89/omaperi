@@ -304,6 +304,45 @@ class TestRazerAsleepGuard(unittest.TestCase):
         self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
 
 
+class TestV4L2Grouping(unittest.TestCase):
+    def test_controls_carry_the_drivers_own_section(self):
+        by_key = {c["key"]: c for c in omaperi.parse_v4l2_controls(V4L2_SAMPLE)}
+        self.assertEqual(by_key["brightness"]["group"], "User Controls")
+        self.assertEqual(by_key["auto_exposure"]["group"], "Camera Controls")
+
+
+class TestZoneOff(unittest.TestCase):
+    @staticmethod
+    def device(leds):
+        return {"type": 0, "name": "Board", "active_mode": 0,
+                "modes": [{"name": "Direct"}], "colors": [0] * leds,
+                "zones": [{"name": "JARGB 1", "leds_min": 0, "leds_max": 240,
+                           "leds_count": leds}]}
+
+    def test_an_empty_header_collapses_to_one_row(self):
+        # A board exposes every header it has, most with nothing plugged in.
+        controls = omaperi.orgb_sdk_device(0, self.device(0))["controls"]
+        zone = [c for c in controls if c["key"].startswith("zone")]
+        self.assertEqual([c["key"] for c in zone], ["zone0_effect"])
+        self.assertEqual(zone[0]["value"], "off")
+
+    def test_a_header_in_use_gets_its_colour(self):
+        controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]
+        keys = [c["key"] for c in controls if c["key"].startswith("zone")]
+        self.assertIn("zone0_effect", keys)
+        self.assertIn("zone0_color", keys)
+
+    def test_zone_controls_are_grouped_by_header_name(self):
+        controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]
+        groups = {c.get("group") for c in controls if c["key"].startswith("zone")}
+        self.assertEqual(groups, {"JARGB 1"})
+
+    def test_off_is_offered_as_an_effect(self):
+        controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]
+        effect = [c for c in controls if c["key"] == "zone0_effect"][0]
+        self.assertEqual(effect["options"][0]["value"], "off")
+
+
 class TestZoneStarts(unittest.TestCase):
     def test_zones_are_laid_out_consecutively(self):
         zones = [{"leds_count": 61}, {"leds_count": 240}, {"leds_count": 0}]

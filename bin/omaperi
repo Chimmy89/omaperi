@@ -221,7 +221,7 @@ def hs_device(d):
             controls.append(
                 control("eq_band_%d" % i, "Band %d" % (i + 1), "range",
                         min=EQ_GAIN_MIN, max=EQ_GAIN_MAX, step=1, unit="dB",
-                        value=curve[i])
+                        value=curve[i], group="Equalizer")
             )
 
     for cap, (key, label, _flag) in HS_TOGGLES.items():
@@ -717,8 +717,11 @@ def unrgb(value):
 # a single "Direct" mode with no speed range -- so anything animated has to be
 # driven by writing frames. That is what the daemon below does.
 
-EFFECTS = ["static", "breathing", "spectrum", "rainbow"]
-EFFECT_LABELS = {"static": "Static", "breathing": "Breathing",
+# "off" is not an animation -- it sizes the channel to nothing, which is the
+# only way to have a header genuinely do nothing. It lives here because "turn
+# this header off" and "what is this header doing" are the same question.
+EFFECTS = ["off", "static", "breathing", "spectrum", "rainbow"]
+EFFECT_LABELS = {"off": "Off", "static": "Static", "breathing": "Breathing",
                  "spectrum": "Spectrum", "rainbow": "Rainbow"}
 EFFECT_LOCK = os.path.join(STATE_DIR, "effects.lock")
 EFFECT_TICK = 0.05                      # 20 frames a second is plenty here
@@ -749,7 +752,7 @@ def effect_jobs():
             continue
         index = int(dev_id.split(":", 1)[1])
         for key, effect in values.items():
-            if not key.endswith("_effect") or effect == "static":
+            if not key.endswith("_effect") or effect in ("static", "off"):
                 continue
             if effect not in EFFECTS:
                 continue
@@ -995,49 +998,60 @@ def orgb_sdk_device(index, d):
 
     for zi, zone in enumerate(zones):
         resizable = zone["leds_max"] > zone["leds_min"]
+        if not (zone["leds_count"] or resizable):
+            continue
+
+        # A board exposes every header it has, most with nothing plugged in.
+        # An empty one is Off and shows a single row; only a header doing
+        # something spends space on a picker.
+        live_off = resizable and not zone["leds_count"]
+        effect = "off" if live_off else remembered(dev_id, "zone%d_effect" % zi,
+                                                   "static")
+        if effect == "off" and not live_off:
+            effect = "static"
+
+        controls.append(
+            control("zone%d_effect" % zi, zone["name"], "enum", value=effect,
+                    group=zone["name"],
+                    options=[{"value": e, "label": EFFECT_LABELS[e]}
+                             for e in EFFECTS])
+        )
+        if effect == "off":
+            continue
+
         if resizable:
-            # Nobody knows how many LEDs are on their fan header, and no
-            # software can measure it -- the ARGB data line is one-way. So the
-            # count is advanced-only; colouring a channel sizes it on demand.
             controls.append(
                 control("zone%d_size" % zi, zone["name"] + " LEDs", "range",
                         min=zone["leds_min"], max=zone["leds_max"], step=1,
-                        value=zone["leds_count"], editable=True, advanced=True)
+                        value=zone["leds_count"], editable=True,
+                        advanced=True, group=zone["name"])
             )
-        if zone["leds_count"] or resizable:
-            live = None
-            if zone["leds_count"]:
-                start = starts[zi]
-                packed = d["colors"][start] if start < len(d["colors"]) else 0
-                live = "#%02x%02x%02x" % unrgb(packed)
-            # An empty zone owns no entries in the colour array, so reading at
-            # its start index lands on the next zone's first LED and shows a
-            # colour belonging to a different header.
-            effect = remembered(dev_id, "zone%d_effect" % zi, "static")
-            # While an effect runs the hardware colour changes every frame, so
-            # reading it back would make the swatch flicker. Show the colour
-            # the effect was seeded with instead.
-            shown = (live if live and effect == "static"
-                     else remembered(dev_id, "zone%d_color" % zi, "#00ff88"))
+
+        live = None
+        if zone["leds_count"]:
+            start = starts[zi]
+            packed = d["colors"][start] if start < len(d["colors"]) else 0
+            live = "#%02x%02x%02x" % unrgb(packed)
+        # An empty zone owns no entries in the colour array, so reading at its
+        # start index lands on the next zone's first LED.
+        #
+        # While an effect runs the hardware colour changes every frame, so
+        # reading it back would make the swatch flicker. Show the colour the
+        # effect was seeded with instead.
+        shown = (live if live and effect == "static"
+                 else remembered(dev_id, "zone%d_color" % zi, "#00ff88"))
+        controls.append(
+            control("zone%d_color" % zi, zone["name"] + " colour", "color",
+                    value=shown, group=zone["name"])
+        )
+        if effect not in ("static", "off"):
             controls.append(
-                control("zone%d_color" % zi, zone["name"] + " colour", "color",
-                        value=shown)
+                control("zone%d_speed" % zi, zone["name"] + " speed", "range",
+                        min=1, max=100, step=1, group=zone["name"],
+                        value=int(remembered(dev_id, "zone%d_speed" % zi, 50)))
             )
-            controls.append(
-                control("zone%d_effect" % zi, zone["name"] + " effect", "enum",
-                        value=effect,
-                        options=[{"value": e, "label": EFFECT_LABELS[e]}
-                                 for e in EFFECTS])
-            )
-            if effect != "static":
-                controls.append(
-                    control("zone%d_speed" % zi, zone["name"] + " speed", "range",
-                            min=1, max=100, step=1,
-                            value=int(remembered(dev_id, "zone%d_speed" % zi, 50)))
-                )
 
     note = None
-
     kind = ORGB_TYPE_KIND[d["type"]] if 0 <= d["type"] < len(ORGB_TYPE_KIND) else "other"
     return {
         "id": dev_id,
@@ -1095,13 +1109,22 @@ def orgb_apply(dev, key, value):
     if key.startswith("zone") and ("_effect" in key or "_speed" in key):
         if "_effect" in key and value not in EFFECTS:
             raise SystemExit("no such effect: %s" % value)
+        zone_index = int(key[4:key.index("_")])
         remember(dev["id"], key, value if "_effect" in key else int(value))
-        if key.endswith("_effect") and value == "static":
-            # Put the seeded colour back, or the strip keeps whatever frame the
-            # writer left behind.
-            zone_index = int(key[4:key.index("_")])
-            colour = remembered(dev["id"], "zone%d_color" % zone_index, "#00ff88")
-            orgb_sdk_apply(dev, "zone%d_color" % zone_index, colour)
+        if key.endswith("_effect"):
+            index = int(dev["id"].split(":", 1)[1])
+            if value == "off":
+                # Sizing the channel to nothing is the only way to make a
+                # header genuinely dark: there is no "disable" in the protocol.
+                with orgb_connect() as client:
+                    client.resize_zone(index, zone_index, 0)
+            else:
+                # Applying the colour sizes the channel back up on demand and
+                # puts a frame on it, rather than leaving whatever the writer
+                # left behind.
+                colour = remembered(dev["id"], "zone%d_color" % zone_index,
+                                    "#00ff88")
+                orgb_sdk_apply(dev, "zone%d_color" % zone_index, colour)
         ensure_effects_daemon()
         return
     if key.startswith("zone") and ("_size" in key or "_color" in key):
@@ -1179,7 +1202,13 @@ def parse_v4l2_controls(text):
     fails. Turn the automatic control off and they reappear on the next poll.
     """
     controls = []
+    section = None
     for line in text.splitlines():
+        # v4l2-ctl prints its own headings ("User Controls", "Camera
+        # Controls"); they group the list far better than anything invented.
+        if line.strip() and not line.startswith((" ", "\t")):
+            section = line.strip()
+            continue
         m = V4L2_CTRL_RE.match(line)
         if m:
             attrs = dict(
@@ -1196,15 +1225,15 @@ def parse_v4l2_controls(text):
             label = name.replace("_", " ").capitalize()
             value = int(attrs["value"]) if "value" in attrs else None
             if ctype == "bool":
-                controls.append(control(name, label, "toggle", value=bool(value)))
+                controls.append(control(name, label, "toggle", value=bool(value), group=section))
             elif ctype == "int":
                 controls.append(
                     control(name, label, "range",
                             min=int(attrs.get("min", 0)), max=int(attrs.get("max", 100)),
-                            step=int(attrs.get("step", 1)), value=value)
+                            step=int(attrs.get("step", 1)), value=value, group=section)
                 )
             elif ctype == "menu":
-                controls.append(control(name, label, "enum", options=[], value=value))
+                controls.append(control(name, label, "enum", options=[], value=value, group=section))
             continue
 
         mm = V4L2_MENU_RE.match(line)

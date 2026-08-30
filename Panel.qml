@@ -348,7 +348,19 @@ Panel {
             delegate: Column {
               id: ctlBlock
               required property var modelData
+              required property int index
               readonly property var ctl: ctlBlock.modelData
+
+              // Controls carry an optional group -- a zone name, a v4l2
+              // section. The first control of each group draws a rule above
+              // itself, so a long list reads as blocks rather than a wall.
+              readonly property string groupName: ctlBlock.ctl.group || ""
+              readonly property bool startsGroup: {
+                if (!ctlBlock.groupName) return false
+                if (ctlBlock.index === 0) return true
+                var prev = deviceBlock.device.controls[ctlBlock.index - 1]
+                return !prev || String(prev.group || "") !== ctlBlock.groupName
+              }
               readonly property string deviceId: root.selectedId
               // Live picker position, seeded from the control's value and
               // reseeded whenever a poll rebuilds this delegate.
@@ -365,6 +377,17 @@ Panel {
               enabled: !ctlBlock.busy
 
               Behavior on opacity { NumberAnimation { duration: 90 } }
+
+              PanelSeparator {
+                width: parent.width
+                visible: ctlBlock.startsGroup && ctlBlock.index > 0
+              }
+
+              Item {
+                width: parent.width
+                height: Style.space(2)
+                visible: ctlBlock.startsGroup && ctlBlock.index > 0
+              }
 
                 // Label row for the types that do not carry their own label.
                 Item {
@@ -404,16 +427,26 @@ Panel {
 
                     // A 100-30000 slider cannot land on an exact figure, and
                     // DPI is a number people know and want to type.
-                    NumberField {
-                      visible: ctlBlock.ctl.editable === true
+                    //
+                    // Behind a Loader, not merely hidden: NumberField.value is
+                    // an int, and a hidden one still evaluates its bindings --
+                    // so a colour control's "#2d2d2d" was being assigned to it
+                    // on every rebuild.
+                    Loader {
                       anchors.verticalCenter: parent.verticalCenter
-                      value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
-                             ? ctlBlock.ctl.value : 0
-                      from: ctlBlock.ctl.min !== undefined ? ctlBlock.ctl.min : 0
-                      to: ctlBlock.ctl.max !== undefined ? ctlBlock.ctl.max : 100000
-                      stepSize: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
-                      onModified: function (v) {
-                        root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                      active: ctlBlock.ctl.editable === true
+                      visible: active
+                      sourceComponent: Component {
+                        NumberField {
+                          value: ctlBlock.ctl.value !== undefined && ctlBlock.ctl.value !== null
+                                 ? ctlBlock.ctl.value : 0
+                          from: ctlBlock.ctl.min !== undefined ? ctlBlock.ctl.min : 0
+                          to: ctlBlock.ctl.max !== undefined ? ctlBlock.ctl.max : 100000
+                          stepSize: ctlBlock.ctl.step !== undefined ? ctlBlock.ctl.step : 1
+                          onModified: function (v) {
+                            root.apply(ctlBlock.deviceId, ctlBlock.ctl.key, v)
+                          }
+                        }
                       }
                     }
 
