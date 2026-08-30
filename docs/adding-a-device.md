@@ -94,7 +94,7 @@ or a panel change can be checked with nothing plugged in.
 | `toggle` | switch | `value` (bool) |
 | `action` | button | — |
 | `readout` | text | `value` |
-| `color` | swatches, saturation/value pad and hue slider | `value` (`#rrggbb`) |
+| `color` | saturation/value pad with a hue slider | `value` (`#rrggbb`) |
 
 If your device needs something none of these express, add the type to
 `Panel.qml` once — after that every adapter can use it.

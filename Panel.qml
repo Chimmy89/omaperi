@@ -572,40 +572,6 @@ Panel {
                   }
                 }
 
-                Loader {
-                  width: parent.width
-                  active: ctlBlock.ctl.type === "color"
-                  visible: active
-                  sourceComponent: Component {
-                  Row {
-                    width: parent.width
-                    spacing: Style.space(6)
-
-                    Repeater {
-                      model: Model.SWATCHES
-                      delegate: Rectangle {
-                        id: swatch
-                        required property var modelData
-                        width: Style.space(26)
-                        height: Style.space(20)
-                        radius: Style.cornerRadius > 0 ? Style.space(4) : 0
-                        color: swatch.modelData
-                        border.width: String(ctlBlock.ctl.value).toLowerCase()
-                                      === String(swatch.modelData).toLowerCase() ? 2 : 0
-                        border.color: Color.foreground
-
-                        MouseArea {
-                          anchors.fill: parent
-                          cursorShape: Qt.PointingHandCursor
-                          onClicked: root.apply(ctlBlock.deviceId, ctlBlock.ctl.key,
-                                                swatch.modelData)
-                        }
-                      }
-                    }
-                  }
-                  }
-                }
-
                 // Saturation/value pad: the standard picker. Hue comes from
                 // the slider below, so between them any colour is reachable,
                 // not just the eight swatches.

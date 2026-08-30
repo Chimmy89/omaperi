@@ -293,8 +293,3 @@ function rgbOf(hex) {
     b: parseInt(v.substring(4, 6), 16) / 255
   }
 }
-
-var SWATCHES = [
-  "#ff0033", "#ff7700", "#ffdd00", "#00ff88",
-  "#00ddff", "#3355ff", "#aa44ff", "#ffffff"
-]
