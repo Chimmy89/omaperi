@@ -113,7 +113,7 @@ HS_RANGES = {
     "CAP_MICROPHONE_VOLUME": ("mic_volume", "Mic volume", "--microphone-volume", 0, 128, None),
     "CAP_MICROPHONE_MUTE_LED_BRIGHTNESS": (
         "mic_led", "Mic mute LED", "--microphone-mute-led-brightness", 0, 3, None),
-    "CAP_BT_CALL_VOLUME": ("bt_call_volume", "BT call volume", "--bt-call-volume", 0, 2, None),
+    "CAP_BT_CALL_VOLUME": ("bt_call_volume", "BT call volume", "--bt-call-volume", 0, 100, None),
 }
 HS_TOGGLES = {
     "CAP_LIGHTS": ("lights", "Lights", "-l"),
