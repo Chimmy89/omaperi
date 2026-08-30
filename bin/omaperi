@@ -816,6 +816,24 @@ def effect_frame(job, count, phase):
     return [rgb(*base)] * count
 
 
+# The screen holds its last frame, so this only has to be often enough for a
+# clock to look right, not smooth.
+OLED_REFRESH = 10.0
+
+
+def screen_jobs():
+    """Every Apex screen showing something that changes."""
+    jobs = []
+    for dev_id, values in load_state().items():
+        if not dev_id.startswith("apexoled:") or not isinstance(values, dict):
+            continue
+        mode = values.get("screen", "off")
+        if mode == "off" or mode not in SCREENS:
+            continue
+        jobs.append({"path": "/dev/" + dev_id.split(":", 1)[1], "mode": mode})
+    return jobs
+
+
 def effects_running():
     """True when another process holds the effect lock."""
     try:
@@ -831,8 +849,8 @@ def effects_running():
 
 
 def ensure_effects_daemon():
-    """Start the frame writer if an effect needs it and none is running."""
-    if not effect_jobs() or effects_running():
+    """Start the frame writer if anything needs it and none is running."""
+    if not (effect_jobs() or screen_jobs()) or effects_running():
         return
     try:
         subprocess.Popen(
@@ -861,10 +879,28 @@ def run_effects():
         primed = set()
         phase = 0.0
         idle = 0.0
+        drawn_at = 0.0
         while True:
             jobs = effect_jobs()
-            if not jobs:
+            screens = screen_jobs()
+            if not jobs and not screens:
                 break
+
+            # Screens are independent of the lighting connection: a missing
+            # OpenRGB server must not stop the clock.
+            now = time.monotonic()
+            if screens and now - drawn_at >= OLED_REFRESH:
+                for screen in screens:
+                    try:
+                        oled_send(screen["path"], oled_frame(screen["mode"]))
+                    except Exception:
+                        pass
+                drawn_at = now
+
+            if not jobs:
+                time.sleep(1.0)
+                continue
+
             try:
                 if client is None:
                     client = orgb_connect()
@@ -1377,6 +1413,174 @@ def dummy_apply(dev, key, value):
 
 
 # --------------------------------------------------------------------------
+# Apex OLED — the small screen on SteelSeries Apex keyboards
+# --------------------------------------------------------------------------
+
+# Protocol from apex-tux (apex-hardware/src/{usb,device}.rs), confirmed on an
+# Apex Pro TKL: 128x40 one bit per pixel, MSB first, sent as a single HID
+# feature report on interface 1. The frame stays until something replaces it,
+# so a static screen costs one write rather than a refresh loop.
+#
+# Only the models using that original single-report protocol are claimed. The
+# Gen 3 keyboards chunk their frames differently; supporting them without one
+# to test against would be a guess.
+APEX_VENDOR = 0x1038
+APEX_OLED_PIDS = {
+    0x1610: "Apex Pro",
+    0x1612: "Apex 7",
+    0x1614: "Apex Pro TKL",
+    0x1618: "Apex 7 TKL",
+    0x161C: "Apex 5",
+}
+APEX_OLED_INTERFACE = 1
+OLED_WIDTH, OLED_HEIGHT = 128, 40
+OLED_HEADER = 0x61
+
+SCREENS = ["off", "clock", "battery"]
+SCREEN_LABELS = {"off": "Off", "clock": "Clock", "battery": "Battery"}
+
+# Tried in order; any monospace face is fine, and load_default covers the rest.
+OLED_FONTS = [
+    "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf",
+    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
+]
+
+
+def hidiocsfeature(length):
+    """HIDIOCSFEATURE(len) = _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len)."""
+    return ((1 | 2) << 30) | (length << 16) | (ord("H") << 8) | 0x06
+
+
+def apex_oled_paths():
+    """Every Apex screen on the machine, as (hidraw path, model name)."""
+    found = []
+    try:
+        names = sorted(os.listdir("/sys/class/hidraw"))
+    except OSError:
+        return found
+    for name in names:
+        base = "/sys/class/hidraw/%s/device" % name
+        try:
+            with open(os.path.join(base, "uevent")) as f:
+                uevent = f.read()
+        except OSError:
+            continue
+        m = re.search(r"HID_ID=\w+:0000([0-9A-Fa-f]{4}):0000([0-9A-Fa-f]{4})", uevent)
+        if not m:
+            continue
+        vid, pid = int(m.group(1), 16), int(m.group(2), 16)
+        if vid != APEX_VENDOR or pid not in APEX_OLED_PIDS:
+            continue
+        interface = os.path.join(os.path.dirname(os.path.realpath(base)),
+                                 "bInterfaceNumber")
+        try:
+            with open(interface) as f:
+                if int(f.read().strip(), 16) != APEX_OLED_INTERFACE:
+                    continue
+        except (OSError, ValueError):
+            continue
+        found.append(("/dev/" + name, APEX_OLED_PIDS[pid]))
+    return found
+
+
+def oled_font(size):
+    from PIL import ImageFont
+    for path in OLED_FONTS:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def oled_lines(mode):
+    """The text to show, as (font size, line) pairs."""
+    if mode == "clock":
+        now = time.localtime()
+        return [(24, time.strftime("%H:%M", now)),
+                (12, time.strftime("%a %d %b", now))]
+    if mode == "battery":
+        lines = []
+        try:
+            for device in cached_document()["devices"]:
+                battery = device.get("battery")
+                if battery and battery.get("level") is not None:
+                    lines.append((13, "%-9.9s %3d%%"
+                                  % (device_word(device), battery["level"])))
+        except Exception:
+            pass
+        return lines[:3] or [(13, "No batteries")]
+    return []
+
+
+def device_word(device):
+    """A short word for the screen -- "Headset", not the product string."""
+    return (device.get("kind") or "device").capitalize()
+
+
+def oled_frame(mode):
+    """640 bytes of pixels. Pillow packs mode "1" exactly as the screen wants."""
+    from PIL import Image, ImageDraw
+    image = Image.new("1", (OLED_WIDTH, OLED_HEIGHT), 0)
+    draw = ImageDraw.Draw(image)
+    y = 0
+    for size, text in oled_lines(mode):
+        draw.text((3, y), text, fill=1, font=oled_font(size))
+        y += size + 2
+    return image.tobytes()
+
+
+def oled_send(path, pixels):
+    payload = bytes([OLED_HEADER]) + pixels + b"\x00"
+    with open(path, "wb") as handle:
+        fcntl.ioctl(handle, hidiocsfeature(len(payload)), payload)
+
+
+def apex_available():
+    if not apex_oled_paths():
+        return False, "no Apex keyboard with a supported screen"
+    try:
+        import PIL.Image  # noqa: F401
+    except ImportError:
+        return False, "python-pillow not installed"
+    return True, None
+
+
+def apex_devices():
+    devices = []
+    for path, model in apex_oled_paths():
+        dev_id = "apexoled:%s" % os.path.basename(path)
+        devices.append({
+            "id": dev_id,
+            "name": "%s screen" % model,
+            "kind": "screen",
+            "type_label": None,
+            "backend": "apexoled",
+            "battery": None,
+            "controls": [
+                control("screen", "Show", "enum",
+                        value=remembered(dev_id, "screen", "off"),
+                        options=[{"value": s, "label": SCREEN_LABELS[s]}
+                                 for s in SCREENS]),
+            ],
+            "note": None,
+        })
+    return devices
+
+
+def apex_apply(dev, key, value):
+    if key != "screen":
+        raise SystemExit("apexoled: no such control %r" % key)
+    if value not in SCREENS:
+        raise SystemExit("no such screen: %s" % value)
+    remember(dev["id"], key, value)
+    oled_send("/dev/" + dev["id"].split(":", 1)[1], oled_frame(value))
+    ensure_effects_daemon()
+
+
+# --------------------------------------------------------------------------
 # adapter registry
 # --------------------------------------------------------------------------
 
@@ -1385,10 +1589,11 @@ ADAPTERS = {
     "openrazer": (razer_available, razer_devices, razer_apply),
     "openrgb": (orgb_available, orgb_devices, orgb_apply),
     "v4l2": (v4l2_available, v4l2_devices, v4l2_apply),
+    "apexoled": (apex_available, apex_devices, apex_apply),
     "dummy": (dummy_available, dummy_devices, dummy_apply),
 }
 
-KIND_ORDER = ["headset", "mouse", "mousemat", "keyboard", "webcam", "microphone",
+KIND_ORDER = ["headset", "mouse", "mousemat", "keyboard", "screen", "webcam", "microphone",
               "speaker", "gamepad", "light", "cooler", "case", "motherboard",
               "memory", "gpu", "storage", "other"]
 

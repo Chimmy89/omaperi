@@ -310,6 +310,37 @@ class TestRazerAsleepGuard(unittest.TestCase):
         self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
 
 
+class TestApexOled(unittest.TestCase):
+    def test_feature_report_ioctl_number(self):
+        # HIDIOCSFEATURE(len) = _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len).
+        # Getting this wrong sends the frame to the wrong ioctl entirely.
+        self.assertEqual(omaperi.hidiocsfeature(642),
+                         (3 << 30) | (642 << 16) | (ord("H") << 8) | 0x06)
+
+    def test_a_frame_is_exactly_the_screen(self):
+        # 128x40 at one bit per pixel. Pillow packs mode "1" MSB first, row
+        # major, which is the layout the screen expects.
+        for mode in ("clock", "battery", "off"):
+            self.assertEqual(len(omaperi.oled_frame(mode)),
+                             omaperi.OLED_WIDTH * omaperi.OLED_HEIGHT // 8,
+                             "%s frame is the wrong size" % mode)
+
+    def test_off_draws_nothing(self):
+        self.assertEqual(omaperi.oled_lines("off"), [])
+        self.assertEqual(set(omaperi.oled_frame("off")), {0})
+
+    def test_clock_and_battery_differ(self):
+        self.assertNotEqual(omaperi.oled_frame("clock"),
+                            omaperi.oled_frame("battery"))
+
+    def test_only_the_single_report_models_are_claimed(self):
+        # The Gen 3 keyboards chunk their frames differently; claiming them
+        # without one to test against would be a guess.
+        self.assertIn(0x1614, omaperi.APEX_OLED_PIDS)
+        for gen3 in (0x1640, 0x1646, 0x1644):
+            self.assertNotIn(gen3, omaperi.APEX_OLED_PIDS)
+
+
 class TestConcurrentState(unittest.TestCase):
     def test_simultaneous_writers_do_not_lose_each_other(self):
         """Every status poll rewrites the cached headset description.

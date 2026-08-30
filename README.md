@@ -23,6 +23,7 @@ v4l2-ctl --list-ctrls    →  ┘
 | Razer mice/keyboards | `openrazer` | battery, DPI, polling rate, sleep timer, lighting |
 | Anything OpenRGB sees | `openrgb` | mode, colour |
 | Webcams | `v4l2-ctl` | brightness, contrast, white balance, exposure, power-line frequency |
+| Apex keyboard screens | direct HID | clock or peripheral batteries on the OLED |
 
 The panel is tabbed, one tab per device: a glyph, a short kind name ("Mouse",
 not the product string), and the battery where there is one. A device that
@@ -77,6 +78,7 @@ install only what your hardware needs:
 | `openrazer` | `openrazer-meta` (AUR) | Razer devices | GPL-2.0 |
 | `openrgb` | `openrgb` | anything OpenRGB sees — zones, readback, ARGB sizing | GPL-2.0 |
 | `v4l2` | `v4l-utils` | webcams | GPL-2.0 |
+| `apexoled` | `python-pillow` | the OLED on Apex Pro / 5 / 7 keyboards | HPND |
 
 ```bash
 sudo pacman -S headsetcontrol openrgb v4l-utils   # as applicable
@@ -119,6 +121,28 @@ picker — so a board with one strip on it reads as one strip, not four.
 
 Turning it back on is the same control: pick any other state and the channel
 sizes itself again.
+
+### The Apex keyboard screen
+
+SteelSeries Apex Pro, 5 and 7 keyboards carry a small 128x40 OLED. omaperi
+writes to it directly — 640 bytes of one-bit pixels behind a `0x61` header,
+sent as a single HID feature report — so there is no daemon to install and no
+toolchain to build. The protocol was taken from
+[apex-tux](https://github.com/not-jan/apex-tux) and confirmed on an Apex Pro
+TKL.
+
+Pick **Clock** or **Battery** from the screen's tab, or **Off** to blank it.
+The frame persists until something replaces it, so a redraw happens every ten
+seconds rather than continuously.
+
+Only the models using the original single-report protocol are claimed. The
+Gen 3 keyboards chunk their frames differently, and supporting them without one
+to test against would be guesswork.
+
+Sharing matters here: the screen lives on the same HID interface OpenRGB uses
+for the keyboard's lighting. They coexist — verified by setting a colour and
+reading it back after writing a frame — but that is worth knowing if lighting
+ever misbehaves.
 
 ### Lighting effects
 
