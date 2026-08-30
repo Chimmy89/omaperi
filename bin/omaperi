@@ -115,8 +115,17 @@ HS_RANGES = {
         "mic_led", "Mic mute LED", "--microphone-mute-led-brightness", 0, 3, None),
     "CAP_BT_CALL_VOLUME": ("bt_call_volume", "BT call volume", "--bt-call-volume", 0, 100, None),
 }
+# The device reports its real gain limits over HID, but headsetcontrol only
+# exposes them through its C library -- the CLI never prints them, upstream
+# 4.1.0 included. Out-of-range values are clamped silently rather than
+# refused (a 30 dB band is accepted without error), so a conservative window
+# is safe: the ends may simply do nothing on a narrower device.
+EQ_GAIN_MIN = -12
+EQ_GAIN_MAX = 12
+
 HS_TOGGLES = {
     "CAP_LIGHTS": ("lights", "Lights", "-l"),
+    "CAP_ROTATE_TO_MUTE": ("rotate_to_mute", "Mute when boom raised", "-r"),
     "CAP_VOICE_PROMPTS": ("voice_prompts", "Voice prompts", "-v"),
     "CAP_VOLUME_LIMITER": ("volume_limiter", "Volume limiter", "--volume-limiter"),
     "CAP_BT_WHEN_POWERED_ON": ("bt_on_power", "Bluetooth on power-on", "--bt-when-powered-on"),
@@ -189,6 +198,27 @@ def hs_device(d):
                     value=remembered(dev_id, "eq_preset", 0))
         )
 
+    if "CAP_NOISE_FILTER" in caps:
+        controls.append(
+            control("noise_filter", "Mic noise filter", "enum",
+                    options=[{"value": 0, "label": "Off"},
+                             {"value": 1, "label": "Low"},
+                             {"value": 2, "label": "High"}],
+                    value=remembered(dev_id, "noise_filter", 0))
+        )
+
+    # The custom curve behind the presets. Band count comes from the presets
+    # themselves, which are the same length as the device's EQ.
+    bands = hs_band_count(d)
+    if "CAP_EQUALIZER" in caps and bands:
+        curve = hs_curve(dev_id, bands)
+        for i in range(bands):
+            controls.append(
+                control("eq_band_%d" % i, "Band %d" % (i + 1), "range",
+                        min=EQ_GAIN_MIN, max=EQ_GAIN_MAX, step=1, unit="dB",
+                        value=curve[i])
+            )
+
     for cap, (key, label, _flag) in HS_TOGGLES.items():
         if cap in caps:
             controls.append(
@@ -223,7 +253,49 @@ def hs_device(d):
     }
 
 
+def hs_band_count(d):
+    presets = d.get("equalizer_presets") or {}
+    for values in presets.values():
+        if isinstance(values, list) and values:
+            return len(values)
+    return 0
+
+
+def hs_curve(dev_id, bands):
+    """The last curve omaperi sent, padded to the band count.
+
+    headsetcontrol cannot read the active curve back, so this is what we last
+    wrote -- including the curve behind whichever preset was picked.
+    """
+    curve = remembered(dev_id, "eq_curve", None) or []
+    curve = [int(v) for v in curve][:bands]
+    return curve + [0] * (bands - len(curve))
+
+
+def hs_preset_curve(dev, index):
+    """The band values of a built-in preset, from the cached description."""
+    for static in load_state().get(HS_STATIC_KEY) or []:
+        presets = static.get("equalizer_presets") or {}
+        values = list(presets.values())
+        if 0 <= index < len(values):
+            return [int(round(v)) for v in values[index]]
+    return None
+
+
 def hs_apply(dev, key, value):
+    bands = len([c for c in dev.get("controls", []) if c["key"].startswith("eq_band_")])
+
+    if key.startswith("eq_band_") and bands:
+        index = int(key.rsplit("_", 1)[1])
+        curve = hs_curve(dev["id"], bands)
+        curve[index] = int(value)
+        rc, _out, err = run(["headsetcontrol", "-e",
+                             ",".join(str(v) for v in curve)])
+        if rc != 0:
+            raise SystemExit("headsetcontrol -e failed: %s" % err.strip())
+        remember(dev["id"], "eq_curve", curve)
+        return
+
     flag = None
     for cap, (k, _l, f, _lo, _hi, _u) in HS_RANGES.items():
         if k == key:
@@ -232,6 +304,8 @@ def hs_apply(dev, key, value):
         if k == key:
             flag = f
             value = 1 if str(value).lower() in ("1", "true", "on", "yes") else 0
+    if key == "noise_filter":
+        flag = "--noise-filter"
     if key == "eq_preset":
         flag = "-p"
     if key == "notification_sound":
@@ -242,10 +316,17 @@ def hs_apply(dev, key, value):
     rc, _out, err = run(["headsetcontrol", flag, str(value)])
     if rc != 0:
         raise SystemExit("headsetcontrol %s %s failed: %s" % (flag, value, err.strip()))
-    if key in HS_TOGGLES:
+    if key in ("lights", "rotate_to_mute", "voice_prompts",
+               "volume_limiter", "bt_on_power"):
         remember(dev["id"], key, bool(int(value)))
     elif key != "notification_sound":
         remember(dev["id"], key, int(value))
+        # Picking a preset moves the real curve, so keep the band sliders
+        # showing what the headset is actually doing.
+        if key == "eq_preset":
+            curve = hs_preset_curve(dev, int(value))
+            if curve:
+                remember(dev["id"], "eq_curve", curve)
 
 
 # --------------------------------------------------------------------------

@@ -19,7 +19,7 @@ v4l2-ctl --list-ctrls    →  ┘
 
 | Device class | Backend | Typical controls |
 |---|---|---|
-| Headsets | `headsetcontrol` | battery, sidetone, EQ preset, auto-off, mic LED, chatmix |
+| Headsets | `headsetcontrol` | battery, sidetone, EQ presets **and a custom band curve**, auto-off, mic volume and noise filter, rotate-to-mute, lights, chatmix |
 | Razer mice/keyboards | `openrazer` | battery, DPI, polling rate, sleep timer, lighting |
 | Anything OpenRGB sees | `openrgb` | mode, colour |
 | Webcams | `v4l2-ctl` | brightness, contrast, white balance, exposure, power-line frequency |
@@ -130,6 +130,12 @@ omaperi apply headset:<vid>:<pid> eq_preset 1   # ids come from `omaperi status`
   takes the header away from whatever was driving it — so the fans on it just
   go dark. omaperi offers nothing there and says why. Set the channel sizes in
   the OpenRGB app first.
+- **The headset EQ gain range is assumed, not read.** The device reports its
+  real limits over HID, but headsetcontrol exposes them only through its C
+  library — the CLI never prints them, upstream 4.1.0 included. Out-of-range
+  values are clamped silently rather than refused, so omaperi offers ±12 dB;
+  on a narrower device the ends of the sliders simply do nothing. Band *count*
+  is exact: it comes from the preset definitions.
 - **OpenRGB colour cannot be read back.** OpenRGB has no state dump — only a
   binary `.orp` profile and an SDK server that is not running as a service on
   most systems — so the colour chip shows what omaperi last set rather than

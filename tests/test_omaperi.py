@@ -261,6 +261,36 @@ class TestRazerSleepingBattery(unittest.TestCase):
         self.assertNotIn("Asleep", device["note"] or "")
 
 
+class TestHeadsetEqualizer(unittest.TestCase):
+    DEVICE = {
+        "device": "Test", "id_vendor": "0x1", "id_product": "0x2",
+        "capabilities": ["CAP_EQUALIZER", "CAP_EQUALIZER_PRESET"],
+        "equalizer_presets": {"flat": [0.0] * 5, "bass boost": [4.0, 2.0, 0.0, 0.0, 0.0]},
+        "battery": {"status": "BATTERY_UNAVAILABLE", "level": -1},
+    }
+
+    def test_band_count_comes_from_the_presets(self):
+        # The presets are the same length as the device's EQ, and it is the
+        # only place the CLI reveals the band count.
+        self.assertEqual(omaperi.hs_band_count(self.DEVICE), 5)
+
+    def test_no_presets_means_no_band_count(self):
+        self.assertEqual(omaperi.hs_band_count({"equalizer_presets": {}}), 0)
+
+    def test_one_band_control_per_band(self):
+        device = omaperi.hs_device(self.DEVICE)
+        bands = [c for c in device["controls"] if c["key"].startswith("eq_band_")]
+        self.assertEqual(len(bands), 5)
+        self.assertEqual(bands[0]["unit"], "dB")
+        self.assertEqual((bands[0]["min"], bands[0]["max"]),
+                         (omaperi.EQ_GAIN_MIN, omaperi.EQ_GAIN_MAX))
+
+    def test_a_short_remembered_curve_is_padded(self):
+        # A device that gains bands between runs must not raise.
+        omaperi.remember("headset:test", "eq_curve", [3, 1])
+        self.assertEqual(omaperi.hs_curve("headset:test", 5), [3, 1, 0, 0, 0])
+
+
 class TestRazerAsleepGuard(unittest.TestCase):
     def test_sleeping_device_is_detected(self):
         # Writes to it are accepted and dropped, so an apply must not claim
