@@ -210,12 +210,13 @@ class TestOpenRGBKinds(unittest.TestCase):
         self.assertEqual(device["kind"], "other")
         self.assertEqual(device["type_label"], "Thermometer")
 
-    def test_single_mode_is_a_readout_not_a_dropdown(self):
+    def test_a_single_mode_gets_no_control(self):
+        # It would be a row permanently reading "Direct" that cannot be
+        # changed and says nothing about what the lighting is doing.
         device = omaperi.orgb_device({
             "index": 1, "name": "Kbd", "type": "Keyboard",
             "modes": ["Direct"], "active_mode": "Direct"})
-        mode = [c for c in device["controls"] if c["key"] == "mode"][0]
-        self.assertEqual(mode["type"], "readout")
+        self.assertEqual([c for c in device["controls"] if c["key"] == "mode"], [])
 
     def test_several_modes_stay_a_dropdown(self):
         device = omaperi.orgb_device({
@@ -375,6 +376,10 @@ class TestZoneOff(unittest.TestCase):
         controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]
         groups = {c.get("group") for c in controls if c["key"].startswith("zone")}
         self.assertEqual(groups, {"JARGB 1"})
+
+    def test_single_mode_device_shows_no_mode_row(self):
+        controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]
+        self.assertEqual([c for c in controls if c["key"] == "mode"], [])
 
     def test_off_is_offered_as_an_effect(self):
         controls = omaperi.orgb_sdk_device(0, self.device(24))["controls"]

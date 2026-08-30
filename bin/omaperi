@@ -1015,8 +1015,9 @@ def orgb_sdk_device(index, d):
         active = modes[d["active_mode"]] if 0 <= d["active_mode"] < len(modes) else modes[0]
         controls.append(control("mode", "Mode", "enum", value=active,
                                 options=[{"value": m, "label": m} for m in modes]))
-    elif modes:
-        controls.append(control("mode", "Mode", "readout", value=modes[0]))
+    # A single-mode device gets no mode control at all: it would be a row
+    # permanently reading "Direct", which cannot be changed and says nothing
+    # about what the lighting is doing. The effect control covers that.
 
     for zi, zone in enumerate(zones):
         resizable = zone["leds_max"] > zone["leds_min"]
@@ -1105,11 +1106,8 @@ def orgb_device(d):
                         options=[{"value": m, "label": m} for m in d["modes"]],
                         value=d["active_mode"] or d["modes"][0]),
             )
-        elif d["modes"]:
-            # A dropdown with one entry is a lie about having a choice. Most
-            # OpenRGB keyboard protocols expose only Direct, meaning effects
-            # have to be animated by software rather than the firmware.
-            controls.insert(0, control("mode", "Mode", "readout", value=d["modes"][0]))
+        # One mode is no choice, and naming it tells the reader nothing, so a
+        # single-mode device gets no mode control here either.
         return {
             "id": dev_id,
             "name": d["name"],
