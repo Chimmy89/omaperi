@@ -304,6 +304,18 @@ class TestRazerAsleepGuard(unittest.TestCase):
         self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
 
 
+class TestZoneStarts(unittest.TestCase):
+    def test_zones_are_laid_out_consecutively(self):
+        zones = [{"leds_count": 61}, {"leds_count": 240}, {"leds_count": 0}]
+        self.assertEqual(omaperi.zone_starts(zones), [0, 61, 301])
+
+    def test_an_empty_first_zone_does_not_shift_the_next(self):
+        # Both start at 0, which is why an empty zone must not read a colour
+        # at its start index: it would show the next zone's first LED.
+        zones = [{"leds_count": 0}, {"leds_count": 240}]
+        self.assertEqual(omaperi.zone_starts(zones), [0, 0])
+
+
 class TestEffects(unittest.TestCase):
     def test_hsv_matches_known_hues(self):
         self.assertEqual(omaperi.hsv_rgb(0, 1, 1), (255, 0, 0))

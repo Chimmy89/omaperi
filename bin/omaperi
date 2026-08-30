@@ -1005,14 +1005,20 @@ def orgb_sdk_device(index, d):
                         value=zone["leds_count"], editable=True, advanced=True)
             )
         if zone["leds_count"] or resizable:
-            start = starts[zi]
-            packed = d["colors"][start] if start < len(d["colors"]) else 0
+            live = None
+            if zone["leds_count"]:
+                start = starts[zi]
+                packed = d["colors"][start] if start < len(d["colors"]) else 0
+                live = "#%02x%02x%02x" % unrgb(packed)
+            # An empty zone owns no entries in the colour array, so reading at
+            # its start index lands on the next zone's first LED and shows a
+            # colour belonging to a different header.
             effect = remembered(dev_id, "zone%d_effect" % zi, "static")
             # While an effect runs the hardware colour changes every frame, so
             # reading it back would make the swatch flicker. Show the colour
             # the effect was seeded with instead.
-            shown = (remembered(dev_id, "zone%d_color" % zi, "#00ff88")
-                     if effect != "static" else "#%02x%02x%02x" % unrgb(packed))
+            shown = (live if live and effect == "static"
+                     else remembered(dev_id, "zone%d_color" % zi, "#00ff88"))
             controls.append(
                 control("zone%d_color" % zi, zone["name"] + " colour", "color",
                         value=shown)
