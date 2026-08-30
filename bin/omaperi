@@ -29,6 +29,8 @@ import json
 import os
 import re
 import shutil
+import socket
+import struct
 import subprocess
 import sys
 import time
@@ -553,6 +555,175 @@ def hex_to_rgb(value):
 
 
 # --------------------------------------------------------------------------
+# OpenRGB SDK client (protocol 0)
+# --------------------------------------------------------------------------
+
+# Protocol 0 on purpose: every packet omaperi needs exists there, and asking
+# for controller data with an empty payload makes the server answer in the
+# protocol-0 layout, so none of the version-gated fields have to be parsed and
+# this cannot drift when the server is upgraded.
+
+MAGIC = b"ORGB"
+HEADER = struct.Struct("<4sIII")
+
+REQUEST_CONTROLLER_COUNT = 0
+REQUEST_CONTROLLER_DATA = 1
+SET_CLIENT_NAME = 50
+RESIZE_ZONE = 1000
+UPDATE_ZONE_LEDS = 1051
+SET_CUSTOM_MODE = 1100
+
+
+class Reader:
+    """Little-endian cursor over the controller data block."""
+
+    def __init__(self, data):
+        self.data = data
+        self.at = 0
+
+    def take(self, n):
+        chunk = self.data[self.at:self.at + n]
+        if len(chunk) != n:
+            raise ValueError("truncated at %d (wanted %d)" % (self.at, n))
+        self.at += n
+        return chunk
+
+    def u16(self):
+        return struct.unpack_from("<H", self.take(2))[0]
+
+    def u32(self):
+        return struct.unpack_from("<I", self.take(4))[0]
+
+    def i32(self):
+        return struct.unpack_from("<i", self.take(4))[0]
+
+    def text(self):
+        # Length includes the null terminator.
+        length = self.u16()
+        return self.take(length).split(b"\0", 1)[0].decode("utf-8", "replace")
+
+
+class OpenRGB:
+    def __init__(self, host="127.0.0.1", port=6742, timeout=2.0):
+        self.sock = socket.create_connection((host, port), timeout=timeout)
+        self.sock.settimeout(timeout)
+        self._send(0, SET_CLIENT_NAME, b"omaperi\0")
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+    def _send(self, dev, pkt, payload=b""):
+        self.sock.sendall(HEADER.pack(MAGIC, dev, pkt, len(payload)) + payload)
+
+    def _recv(self, n):
+        out = b""
+        while len(out) < n:
+            chunk = self.sock.recv(n - len(out))
+            if not chunk:
+                raise ConnectionError("server closed the connection")
+            out += chunk
+        return out
+
+    def _reply(self, want_pkt):
+        while True:
+            magic, dev, pkt, size = HEADER.unpack(self._recv(HEADER.size))
+            if magic != MAGIC:
+                raise ValueError("not an OpenRGB packet: %r" % magic)
+            body = self._recv(size) if size else b""
+            if pkt == want_pkt:
+                return dev, body
+            # Unsolicited server notifications (device list updated, etc.)
+
+    def controller_count(self):
+        self._send(0, REQUEST_CONTROLLER_COUNT)
+        _dev, body = self._reply(REQUEST_CONTROLLER_COUNT)
+        return struct.unpack_from("<I", body)[0]
+
+    def controller(self, index):
+        self._send(index, REQUEST_CONTROLLER_DATA)   # empty body => protocol 0
+        _dev, body = self._reply(REQUEST_CONTROLLER_DATA)
+        return self._parse_controller(body)
+
+    @staticmethod
+    def _parse_controller(body):
+        r = Reader(body)
+        r.u32()                       # data_size, already framed by the header
+        dev = {"type": r.i32(), "name": r.text(), "description": r.text(),
+               "version": r.text(), "serial": r.text(), "location": r.text()}
+
+        modes = []
+        num_modes = r.u16()
+        dev["active_mode"] = r.i32()
+        for _ in range(num_modes):
+            mode = {"name": r.text(), "value": r.i32(), "flags": r.u32(),
+                    "speed_min": r.u32(), "speed_max": r.u32(),
+                    "colors_min": r.u32(), "colors_max": r.u32(),
+                    "speed": r.u32(), "direction": r.u32(),
+                    "color_mode": r.u32()}
+            mode["colors"] = [r.u32() for _ in range(r.u16())]
+            modes.append(mode)
+        dev["modes"] = modes
+
+        zones = []
+        for _ in range(r.u16()):
+            zone = {"name": r.text(), "type": r.i32(), "leds_min": r.u32(),
+                    "leds_max": r.u32(), "leds_count": r.u32()}
+            r.take(r.u16())           # matrix map, unused
+            zones.append(zone)
+        dev["zones"] = zones
+
+        dev["leds"] = [{"name": r.text(), "value": r.u32()} for _ in range(r.u16())]
+        dev["colors"] = [r.u32() for _ in range(r.u16())]
+        return dev
+
+    def resize_zone(self, index, zone_idx, size):
+        self._send(index, RESIZE_ZONE, struct.pack("<ii", zone_idx, size))
+
+    def set_custom_mode(self, index):
+        self._send(index, SET_CUSTOM_MODE)
+
+    def update_zone_leds(self, index, zone_idx, colors):
+        body = struct.pack("<IH", zone_idx, len(colors))
+        body += b"".join(struct.pack("<I", c) for c in colors)
+        self._send(index, UPDATE_ZONE_LEDS, struct.pack("<I", len(body) + 4) + body)
+
+
+def rgb(r, g, b):
+    """OpenRGB packs colour as 0x00BBGGRR."""
+    return (r & 0xFF) | ((g & 0xFF) << 8) | ((b & 0xFF) << 16)
+
+
+def unrgb(value):
+    return (value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF)
+
+
+ORGB_HOST = os.environ.get("OMAPERI_OPENRGB_HOST", "127.0.0.1")
+ORGB_PORT = int(os.environ.get("OMAPERI_OPENRGB_PORT", "6742"))
+
+
+def orgb_connect():
+    return OpenRGB(ORGB_HOST, ORGB_PORT)
+
+
+def zone_starts(zones):
+    """First LED index of each zone; zones are laid out consecutively."""
+    starts, at = [], 0
+    for z in zones:
+        starts.append(at)
+        at += z["leds_count"]
+    return starts
+
+
+# --------------------------------------------------------------------------
 # OpenRGB — anything OpenRGB sees (keyboards, motherboards, RAM, ...)
 # --------------------------------------------------------------------------
 
@@ -560,9 +731,15 @@ ORGB_DEVICE_RE = re.compile(r"^(\d+):\s+(.*)$")
 
 
 def orgb_available():
-    if not shutil.which("openrgb"):
-        return False, "openrgb not installed"
-    return True, None
+    try:
+        orgb_connect().close()
+        return True, None
+    except Exception:
+        pass
+    if shutil.which("openrgb"):
+        # Degraded: colour only, no zones, no readback, no resizing.
+        return True, None
+    return False, "openrgb not installed"
 
 
 def parse_openrgb(text):
@@ -620,10 +797,81 @@ ORGB_KIND = {
 
 
 def orgb_devices():
+    """Prefer the SDK; fall back to the CLI when no server is running.
+
+    The CLI can only set a whole-device colour: it cannot report zones, read a
+    colour back, or resize an addressable channel -- and an unsized channel is
+    exactly why an ARGB header lights nothing.
+    """
+    try:
+        with orgb_connect() as client:
+            return [orgb_sdk_device(i, client.controller(i))
+                    for i in range(client.controller_count())]
+    except Exception:
+        pass
     rc, out, _ = run(["openrgb", "--list-devices"], timeout=45)
     if rc != 0:
         return []
     return [orgb_device(d) for d in parse_openrgb(out)]
+
+
+# OpenRGB's own device type enum, in order.
+ORGB_TYPE_KIND = [
+    "motherboard", "memory", "gpu", "cooler", "light", "keyboard", "mouse",
+    "mousemat", "headset", "headset", "gamepad", "light", "speaker", "other",
+    "storage", "case", "microphone", "other", "keyboard",
+]
+
+
+def orgb_sdk_device(index, d):
+    dev_id = "openrgb:%d" % index
+    zones = d["zones"]
+    starts = zone_starts(zones)
+    controls = []
+
+    modes = [m["name"] for m in d["modes"]]
+    if len(modes) > 1:
+        active = modes[d["active_mode"]] if 0 <= d["active_mode"] < len(modes) else modes[0]
+        controls.append(control("mode", "Mode", "enum", value=active,
+                                options=[{"value": m, "label": m} for m in modes]))
+    elif modes:
+        controls.append(control("mode", "Mode", "readout", value=modes[0]))
+
+    for zi, zone in enumerate(zones):
+        # An addressable header cannot count what is plugged into it, so its
+        # size is a user setting. Zero means nothing will light.
+        if zone["leds_max"] > zone["leds_min"]:
+            controls.append(
+                control("zone%d_size" % zi, zone["name"] + " LEDs", "range",
+                        min=zone["leds_min"], max=zone["leds_max"], step=1,
+                        value=zone["leds_count"], editable=True)
+            )
+        if zone["leds_count"]:
+            start = starts[zi]
+            packed = d["colors"][start] if start < len(d["colors"]) else 0
+            controls.append(
+                control("zone%d_color" % zi, zone["name"] + " colour", "color",
+                        value="#%02x%02x%02x" % unrgb(packed))
+            )
+
+    unsized = [z for z in zones if z["leds_max"] > z["leds_min"] and not z["leds_count"]]
+    note = None
+    if unsized:
+        note = ("No LEDs configured on %s. Set each channel's LED count to "
+                "match what is plugged into it, then a colour appears."
+                % ", ".join(z["name"] for z in unsized))
+
+    kind = ORGB_TYPE_KIND[d["type"]] if 0 <= d["type"] < len(ORGB_TYPE_KIND) else "other"
+    return {
+        "id": dev_id,
+        "name": d["name"],
+        "kind": kind,
+        "type_label": None,
+        "backend": "openrgb",
+        "battery": None,
+        "controls": controls,
+        "note": note,
+    }
 
 
 def orgb_device(d):
@@ -667,6 +915,8 @@ def orgb_device(d):
 
 
 def orgb_apply(dev, key, value):
+    if key.startswith("zone") and ("_size" in key or "_color" in key):
+        return orgb_sdk_apply(dev, key, value)
     index = dev["id"].split(":", 1)[1]
     remember(dev["id"], key, value)
     cmd = ["openrgb", "--device", index]
@@ -686,6 +936,26 @@ def orgb_apply(dev, key, value):
     rc, _out, err = run(cmd, timeout=45)
     if rc != 0:
         raise SystemExit("openrgb failed: %s" % err.strip())
+
+
+def orgb_sdk_apply(dev, key, value):
+    index = int(dev["id"].split(":", 1)[1])
+    zone_index = int(key[4:key.index("_")])
+    with orgb_connect() as client:
+        if key.endswith("_size"):
+            client.resize_zone(index, zone_index, int(value))
+            return
+        zone = client.controller(index)["zones"][zone_index]
+        count = zone["leds_count"]
+        if not count:
+            raise SystemExit("%s has no LEDs configured -- set its size first"
+                             % zone["name"])
+        packed = rgb(*hex_to_rgb(value))
+        # Direct/custom mode first, or the controller keeps running whatever
+        # effect it was on and ignores the LED data.
+        client.set_custom_mode(index)
+        client.update_zone_leds(index, zone_index, [packed] * count)
+    remember(dev["id"], key, value)
 
 
 # --------------------------------------------------------------------------

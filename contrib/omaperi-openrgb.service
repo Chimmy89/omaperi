@@ -1,0 +1,23 @@
+# OpenRGB's SDK server, which omaperi talks to for zone-level lighting.
+#
+# Without it omaperi falls back to the OpenRGB CLI, which can only set a
+# whole-device colour: no zones, no colour readback, and no way to size an
+# addressable channel -- and an unsized channel lights nothing at all.
+#
+#   systemctl --user enable --now omaperi-openrgb.service
+#
+# To undo:
+#   systemctl --user disable --now omaperi-openrgb.service
+
+[Unit]
+Description=OpenRGB SDK server for omaperi
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/openrgb --server --noautoconnect
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

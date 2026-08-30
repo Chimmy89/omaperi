@@ -75,7 +75,7 @@ install only what your hardware needs:
 |---|---|---|---|
 | `headsetcontrol` | `headsetcontrol` | wireless headsets | GPL-3.0 |
 | `openrazer` | `openrazer-meta` (AUR) | Razer devices | GPL-2.0 |
-| `openrgb` | `openrgb` | anything OpenRGB sees | GPL-2.0 |
+| `openrgb` | `openrgb` | anything OpenRGB sees — zones, readback, ARGB sizing | GPL-2.0 |
 | `v4l2` | `v4l-utils` | webcams | GPL-2.0 |
 
 ```bash
@@ -86,6 +86,25 @@ yay -S openrazer-meta                             # Razer devices
 None are bundled or downloaded by omaperi; it only calls them if they are
 already on `PATH`. `omaperi backends` prints which are live and why the others
 are not.
+
+### OpenRGB: run the SDK server
+
+omaperi talks to OpenRGB over its SDK socket. Without a server it falls back to
+the `openrgb` CLI, which can only set one colour for a whole device — it cannot
+report zones, read a colour back, or **size an addressable channel**. That last
+one matters: an ARGB header cannot count what is plugged into it, so OpenRGB
+starts it at zero LEDs, and a header at zero lights nothing no matter what
+colour you send it.
+
+```bash
+install -Dm644 contrib/omaperi-openrgb.service ~/.config/systemd/user/omaperi-openrgb.service
+systemctl --user enable --now omaperi-openrgb.service
+```
+
+With the server up, each addressable header gets an **LED count** control.
+Set it to however many LEDs are actually on that channel and a colour control
+appears beside it. Sizes live in OpenRGB, so save a profile there if you want
+them kept across restarts of the server.
 
 ## Removal
 
@@ -136,10 +155,9 @@ omaperi apply headset:<vid>:<pid> eq_preset 1   # ids come from `omaperi status`
   values are clamped silently rather than refused, so omaperi offers ±12 dB;
   on a narrower device the ends of the sliders simply do nothing. Band *count*
   is exact: it comes from the preset definitions.
-- **OpenRGB colour cannot be read back.** OpenRGB has no state dump — only a
-  binary `.orp` profile and an SDK server that is not running as a service on
-  most systems — so the colour chip shows what omaperi last set rather than
-  what the device is currently displaying.
+- **Colour readback needs the SDK server.** With it, the colour chip shows what
+  the device is actually displaying. Without it, omaperi is on the CLI fallback
+  and the chip only shows what it last set.
 - **Some controls are write-only.** `headsetcontrol` can set sidetone but cannot
   read it back, so omaperi remembers what it last sent in
   `~/.local/state/omaperi/state.json` and shows that.
