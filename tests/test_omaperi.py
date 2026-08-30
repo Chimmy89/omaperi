@@ -304,6 +304,47 @@ class TestRazerAsleepGuard(unittest.TestCase):
         self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
 
 
+class TestEffects(unittest.TestCase):
+    def test_hsv_matches_known_hues(self):
+        self.assertEqual(omaperi.hsv_rgb(0, 1, 1), (255, 0, 0))
+        self.assertEqual(omaperi.hsv_rgb(120, 1, 1), (0, 255, 0))
+        self.assertEqual(omaperi.hsv_rgb(240, 1, 1), (0, 0, 255))
+        self.assertEqual(omaperi.hsv_rgb(0, 0, 1), (255, 255, 255))
+
+    def test_rainbow_varies_along_the_strip(self):
+        job = {"effect": "rainbow", "base": (0, 255, 136), "speed": 50}
+        frame = omaperi.effect_frame(job, 8, 0.0)
+        self.assertEqual(len(frame), 8)
+        self.assertGreater(len(set(frame)), 4)   # a gradient, not one colour
+
+    def test_rainbow_period_is_fixed_not_stretched(self):
+        # Zones are sized to the channel maximum, usually far longer than the
+        # strip actually attached, so a rainbow stretched over the zone would
+        # show only a sliver of the spectrum on real hardware.
+        job = {"effect": "rainbow", "base": (255, 0, 0), "speed": 50}
+        short = omaperi.effect_frame(job, omaperi.RAINBOW_PERIOD, 0.0)
+        long = omaperi.effect_frame(job, omaperi.RAINBOW_PERIOD * 4, 0.0)
+        self.assertEqual(short, long[:omaperi.RAINBOW_PERIOD])
+
+    def test_breathing_is_one_colour_that_moves_over_time(self):
+        job = {"effect": "breathing", "base": (255, 0, 0), "speed": 50}
+        a = omaperi.effect_frame(job, 4, 0.0)
+        b = omaperi.effect_frame(job, 4, 0.25)
+        self.assertEqual(len(set(a)), 1)
+        self.assertNotEqual(a, b)
+
+    def test_breathing_never_goes_fully_dark(self):
+        # A strip that blinks out reads as broken hardware.
+        job = {"effect": "breathing", "base": (255, 0, 0), "speed": 50}
+        darkest = min(omaperi.effect_frame(job, 1, p / 40.0)[0] for p in range(40))
+        self.assertGreater(darkest, 0)
+
+    def test_static_returns_the_base_colour(self):
+        job = {"effect": "static", "base": (18, 52, 86), "speed": 50}
+        self.assertEqual(omaperi.effect_frame(job, 2, 0.7),
+                         [omaperi.rgb(18, 52, 86)] * 2)
+
+
 class TestControlValidation(unittest.TestCase):
     DEVICE = {
         "id": "v4l2:video0",

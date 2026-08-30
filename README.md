@@ -110,12 +110,29 @@ If you want the exact count anyway, turn on **Show advanced controls** in the
 widget's settings. Sizes live in OpenRGB, so save a profile there to keep them
 across restarts of the server.
 
+### Lighting effects
+
+Most controllers expose no firmware effects at all — OpenRGB reports a single
+`Direct` mode for both the motherboard and keyboard here, with no speed range —
+so omaperi animates them itself: **Static**, **Breathing**, **Spectrum** and
+**Rainbow**, with a speed control.
+
+The frame writer starts on its own when you pick an effect and exits once
+everything is back to Static, so there is no service to enable and no process
+left running when nothing is animating. Effects need the OpenRGB server, and
+they stop if it does — unlike a firmware effect, which would keep running on
+its own. Your hardware gives no choice there.
+
+Rainbow repeats every 24 LEDs rather than being stretched across the zone,
+because zones are sized to the channel maximum and stretching would show only
+a sliver of the spectrum on a real strip.
+
 ## Removal
 
 ```bash
 omarchy plugin remove io.github.chimmy89.omaperi
 rm -f ~/.local/bin/omaperi
-rm -rf ~/.local/state/omaperi     # remembered write-only values and the poll cache
+rm -rf ~/.local/state/omaperi     # remembered values, effect state, poll cache
 ```
 
 Remove the widget from `bar.layout` in `~/.config/omarchy/shell.json` if you

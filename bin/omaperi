@@ -14,6 +14,8 @@ unavailable and disappears from the panel instead of erroring.
   omaperi status              capability document for everything present
   omaperi apply ID KEY VALUE  set one control, print the refreshed document
   omaperi backends            which adapters are live, and why not
+  omaperi effects             write animation frames until none are wanted
+                              (started automatically; exits on its own)
 
 Document schema (version 1):
 
@@ -26,6 +28,7 @@ Control types: range | enum | toggle | action | readout | color
 
 import fcntl
 import json
+import math
 import os
 import re
 import shutil
@@ -706,6 +709,159 @@ def unrgb(value):
     return (value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF)
 
 
+# --------------------------------------------------------------------------
+# software effects
+# --------------------------------------------------------------------------
+
+# Neither of the controllers here offers a firmware effect -- OpenRGB reports
+# a single "Direct" mode with no speed range -- so anything animated has to be
+# driven by writing frames. That is what the daemon below does.
+
+EFFECTS = ["static", "breathing", "spectrum", "rainbow"]
+EFFECT_LABELS = {"static": "Static", "breathing": "Breathing",
+                 "spectrum": "Spectrum", "rainbow": "Rainbow"}
+EFFECT_LOCK = os.path.join(STATE_DIR, "effects.lock")
+EFFECT_TICK = 0.05                      # 20 frames a second is plenty here
+
+# A rainbow spans this many LEDs before repeating, rather than being stretched
+# over the zone: zones are sized to the channel maximum, which is usually far
+# longer than the strip actually plugged in, so stretching would show only a
+# sliver of the spectrum.
+RAINBOW_PERIOD = 24
+
+
+def hsv_rgb(h, sat, val):
+    """(r, g, b) 0-255 from degrees/0-1/0-1."""
+    c = val * sat
+    x = c * (1 - abs(((h / 60.0) % 2) - 1))
+    m = val - c
+    r, g, b = [(c, x, 0), (x, c, 0), (0, c, x),
+               (0, x, c), (x, 0, c), (c, 0, x)][int(h // 60) % 6]
+    return (int(round((r + m) * 255)), int(round((g + m) * 255)),
+            int(round((b + m) * 255)))
+
+
+def effect_jobs():
+    """Every zone currently running a non-static effect."""
+    jobs = []
+    for dev_id, values in load_state().items():
+        if not dev_id.startswith("openrgb:") or not isinstance(values, dict):
+            continue
+        index = int(dev_id.split(":", 1)[1])
+        for key, effect in values.items():
+            if not key.endswith("_effect") or effect == "static":
+                continue
+            if effect not in EFFECTS:
+                continue
+            zone = int(key[4:key.index("_")])
+            jobs.append({
+                "index": index,
+                "zone": zone,
+                "effect": effect,
+                "speed": int(values.get(key.replace("_effect", "_speed"), 50)),
+                "base": hex_to_rgb(values.get(key.replace("_effect", "_color"),
+                                              "#00ff88")),
+            })
+    return jobs
+
+
+def effect_frame(job, count, phase):
+    effect, base = job["effect"], job["base"]
+    if effect == "breathing":
+        # Never fully dark: a strip that blinks out reads as broken.
+        k = 0.12 + 0.88 * (math.sin(phase * 2 * math.pi) + 1) / 2
+        return [rgb(*[int(c * k) for c in base])] * count
+    if effect == "spectrum":
+        return [rgb(*hsv_rgb((phase * 360) % 360, 1.0, 1.0))] * count
+    if effect == "rainbow":
+        step = 360.0 / RAINBOW_PERIOD
+        return [rgb(*hsv_rgb((phase * 360 + i * step) % 360, 1.0, 1.0))
+                for i in range(count)]
+    return [rgb(*base)] * count
+
+
+def effects_running():
+    """True when another process holds the effect lock."""
+    try:
+        with open(EFFECT_LOCK, "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(lock, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    return False
+
+
+def ensure_effects_daemon():
+    """Start the frame writer if an effect needs it and none is running."""
+    if not effect_jobs() or effects_running():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "effects"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL, start_new_session=True,
+        )
+    except Exception:
+        pass
+
+
+def run_effects():
+    """Write frames until nothing wants them any more, then exit.
+
+    Self-limiting on purpose: no unit to enable, and no process left running
+    once everything is back to static.
+    """
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(EFFECT_LOCK, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0                     # another writer already has it
+
+        client = None
+        primed = set()
+        phase = 0.0
+        idle = 0.0
+        while True:
+            jobs = effect_jobs()
+            if not jobs:
+                break
+            try:
+                if client is None:
+                    client = orgb_connect()
+                    primed.clear()
+                for job in jobs:
+                    if job["index"] not in primed:
+                        client.set_custom_mode(job["index"])
+                        primed.add(job["index"])
+                    zone = client.controller(job["index"])["zones"][job["zone"]]
+                    count = zone["leds_count"]
+                    if not count:
+                        continue
+                    speed = max(1, min(100, job["speed"])) / 100.0
+                    client.update_zone_leds(
+                        job["index"], job["zone"],
+                        effect_frame(job, count, phase * speed))
+            except Exception:
+                # Server restarted or went away: drop the connection and retry
+                # on the next tick rather than dying.
+                if client is not None:
+                    client.close()
+                client = None
+                idle += 1.0
+                if idle > 60:
+                    break
+                time.sleep(1.0)
+                continue
+            idle = 0.0
+            phase = (phase + EFFECT_TICK / 4.0) % 1000.0
+            time.sleep(EFFECT_TICK)
+    return 0
+
+
 ORGB_HOST = os.environ.get("OMAPERI_OPENRGB_HOST", "127.0.0.1")
 ORGB_PORT = int(os.environ.get("OMAPERI_OPENRGB_PORT", "6742"))
 
@@ -851,10 +1007,28 @@ def orgb_sdk_device(index, d):
         if zone["leds_count"] or resizable:
             start = starts[zi]
             packed = d["colors"][start] if start < len(d["colors"]) else 0
+            effect = remembered(dev_id, "zone%d_effect" % zi, "static")
+            # While an effect runs the hardware colour changes every frame, so
+            # reading it back would make the swatch flicker. Show the colour
+            # the effect was seeded with instead.
+            shown = (remembered(dev_id, "zone%d_color" % zi, "#00ff88")
+                     if effect != "static" else "#%02x%02x%02x" % unrgb(packed))
             controls.append(
                 control("zone%d_color" % zi, zone["name"] + " colour", "color",
-                        value="#%02x%02x%02x" % unrgb(packed))
+                        value=shown)
             )
+            controls.append(
+                control("zone%d_effect" % zi, zone["name"] + " effect", "enum",
+                        value=effect,
+                        options=[{"value": e, "label": EFFECT_LABELS[e]}
+                                 for e in EFFECTS])
+            )
+            if effect != "static":
+                controls.append(
+                    control("zone%d_speed" % zi, zone["name"] + " speed", "range",
+                            min=1, max=100, step=1,
+                            value=int(remembered(dev_id, "zone%d_speed" % zi, 50)))
+                )
 
     note = None
 
@@ -912,6 +1086,18 @@ def orgb_device(d):
 
 
 def orgb_apply(dev, key, value):
+    if key.startswith("zone") and ("_effect" in key or "_speed" in key):
+        if "_effect" in key and value not in EFFECTS:
+            raise SystemExit("no such effect: %s" % value)
+        remember(dev["id"], key, value if "_effect" in key else int(value))
+        if key.endswith("_effect") and value == "static":
+            # Put the seeded colour back, or the strip keeps whatever frame the
+            # writer left behind.
+            zone_index = int(key[4:key.index("_")])
+            colour = remembered(dev["id"], "zone%d_color" % zone_index, "#00ff88")
+            orgb_sdk_apply(dev, "zone%d_color" % zone_index, colour)
+        ensure_effects_daemon()
+        return
     if key.startswith("zone") and ("_size" in key or "_color" in key):
         return orgb_sdk_apply(dev, key, value)
     index = dev["id"].split(":", 1)[1]
@@ -1250,6 +1436,9 @@ def main(argv):
         json.dump(cached_document(), sys.stdout)
         sys.stdout.write("\n")
         return 0
+
+    if command == "effects":
+        return run_effects()
 
     if command == "backends":
         for b in build_document()["backends"]:
