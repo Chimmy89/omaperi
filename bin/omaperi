@@ -838,15 +838,17 @@ def orgb_sdk_device(index, d):
         controls.append(control("mode", "Mode", "readout", value=modes[0]))
 
     for zi, zone in enumerate(zones):
-        # An addressable header cannot count what is plugged into it, so its
-        # size is a user setting. Zero means nothing will light.
-        if zone["leds_max"] > zone["leds_min"]:
+        resizable = zone["leds_max"] > zone["leds_min"]
+        if resizable:
+            # Nobody knows how many LEDs are on their fan header, and no
+            # software can measure it -- the ARGB data line is one-way. So the
+            # count is advanced-only; colouring a channel sizes it on demand.
             controls.append(
                 control("zone%d_size" % zi, zone["name"] + " LEDs", "range",
                         min=zone["leds_min"], max=zone["leds_max"], step=1,
-                        value=zone["leds_count"], editable=True)
+                        value=zone["leds_count"], editable=True, advanced=True)
             )
-        if zone["leds_count"]:
+        if zone["leds_count"] or resizable:
             start = starts[zi]
             packed = d["colors"][start] if start < len(d["colors"]) else 0
             controls.append(
@@ -854,16 +856,7 @@ def orgb_sdk_device(index, d):
                         value="#%02x%02x%02x" % unrgb(packed))
             )
 
-    # Only say this when nothing at all is configured. Most boards have more
-    # headers than the owner uses, and a permanent complaint about the empty
-    # ones would be noise -- a configured channel proves they know the control
-    # is there.
-    resizable = [z for z in zones if z["leds_max"] > z["leds_min"]]
     note = None
-    if resizable and not any(z["leds_count"] for z in resizable):
-        note = ("No LEDs configured yet. An addressable header cannot count "
-                "what is plugged into it, so set each channel's LED count to "
-                "match its strip and a colour control appears beside it.")
 
     kind = ORGB_TYPE_KIND[d["type"]] if 0 <= d["type"] < len(ORGB_TYPE_KIND) else "other"
     return {
@@ -952,8 +945,16 @@ def orgb_sdk_apply(dev, key, value):
         zone = client.controller(index)["zones"][zone_index]
         count = zone["leds_count"]
         if not count:
-            raise SystemExit("%s has no LEDs configured -- set its size first"
-                             % zone["name"])
+            # Size it to the channel maximum rather than asking. The data line
+            # is one-way so the length cannot be measured, but surplus colour
+            # data is simply ignored by a shorter strip -- so the maximum
+            # lights whatever is actually attached, and nothing is asked of
+            # someone who has no idea how many LEDs their fans have.
+            client.resize_zone(index, zone_index, zone["leds_max"])
+            zone = client.controller(index)["zones"][zone_index]
+            count = zone["leds_count"]
+        if not count:
+            raise SystemExit("%s could not be sized" % zone["name"])
         packed = rgb(*hex_to_rgb(value))
         # Direct/custom mode first, or the controller keeps running whatever
         # effect it was on and ignores the LED data.

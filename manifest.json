@@ -23,7 +23,8 @@
       "pollSeconds": 60,
       "lowPct": 15,
       "showPercentage": true,
-      "barMode": "summary"
+      "barMode": "summary",
+      "showAdvanced": false
     },
     "schema": [
       {
@@ -60,6 +61,12 @@
         "key": "showPercentage",
         "type": "bool",
         "label": "Show battery percentage in the bar"
+      },
+      {
+        "key": "showAdvanced",
+        "type": "bool",
+        "label": "Show advanced controls",
+        "description": "Reveals settings that are normally handled automatically, such as the LED count of an addressable header."
       }
     ]
   }

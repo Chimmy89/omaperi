@@ -101,10 +101,14 @@ install -Dm644 contrib/omaperi-openrgb.service ~/.config/systemd/user/omaperi-op
 systemctl --user enable --now omaperi-openrgb.service
 ```
 
-With the server up, each addressable header gets an **LED count** control.
-Set it to however many LEDs are actually on that channel and a colour control
-appears beside it. Sizes live in OpenRGB, so save a profile there if you want
-them kept across restarts of the server.
+With the server up, every addressable header simply gets a colour. You are not
+asked how many LEDs are on it: an ARGB data line is one-way, so no software can
+measure a strip, but surplus colour data is ignored by a shorter one — so
+colouring a channel sizes it to its maximum and lights whatever is attached.
+
+If you want the exact count anyway, turn on **Show advanced controls** in the
+widget's settings. Sizes live in OpenRGB, so save a profile there to keep them
+across restarts of the server.
 
 ## Removal
 

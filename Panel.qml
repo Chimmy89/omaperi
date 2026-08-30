@@ -34,6 +34,9 @@ Panel {
   // "summary" keeps one fixed slot; "pills" gives each battery-bearing device
   // its own.
   readonly property string barMode: String(setting("barMode", "summary"))
+  // Controls marked advanced are hidden by default: they are settings nobody
+  // should need to know, like how many LEDs are on a fan header.
+  readonly property bool showAdvanced: setting("showAdvanced", false) === true
 
   // ---- live state ----
   property var devices: []
@@ -351,6 +354,7 @@ Panel {
                                            && root.busyKey === ctlBlock.deviceId + "/" + ctlBlock.ctl.key
               width: deviceBlock.width
               spacing: Style.space(4)
+              visible: ctlBlock.ctl.advanced !== true || root.showAdvanced
               opacity: ctlBlock.busy ? 0.45 : 1.0
               enabled: !ctlBlock.busy
 
