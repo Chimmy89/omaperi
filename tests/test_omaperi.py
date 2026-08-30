@@ -261,6 +261,19 @@ class TestRazerSleepingBattery(unittest.TestCase):
         self.assertNotIn("Asleep", device["note"] or "")
 
 
+class TestRazerAsleepGuard(unittest.TestCase):
+    def test_sleeping_device_is_detected(self):
+        # Writes to it are accepted and dropped, so an apply must not claim
+        # success -- this is what left a test DPI on the mouse for a day.
+        self.assertTrue(omaperi.razer_asleep(FakeRazer(0)))
+
+    def test_awake_device_is_not_blocked(self):
+        self.assertFalse(omaperi.razer_asleep(FakeRazer(100)))
+
+    def test_device_without_a_battery_is_never_treated_as_asleep(self):
+        self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
+
+
 class TestControlValidation(unittest.TestCase):
     DEVICE = {
         "id": "v4l2:video0",

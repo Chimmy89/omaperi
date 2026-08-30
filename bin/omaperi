@@ -406,6 +406,19 @@ def razer_effects(d):
     return out
 
 
+def razer_asleep(d):
+    """A sleeping Razer device reports battery 0 (see razer_device).
+
+    It also accepts writes over its dongle and drops them: setting .dpi raises
+    nothing and the value never lands. Callers must refuse rather than report
+    success for a change that did not happen.
+    """
+    try:
+        return bool(d.has("battery")) and round(d.battery_level) == 0
+    except Exception:
+        return False
+
+
 def razer_apply(dev, key, value):
     from openrazer.client import DeviceManager
 
@@ -417,6 +430,8 @@ def razer_apply(dev, key, value):
             break
     if target is None:
         raise SystemExit("openrazer: device %s is gone" % serial)
+    if razer_asleep(target):
+        raise SystemExit("%s is asleep -- wake it and try again" % dev["name"])
 
     if key in ("dpi", "dpi_stage"):
         target.dpi = (int(value), int(value))
