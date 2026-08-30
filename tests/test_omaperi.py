@@ -8,6 +8,7 @@ thin call into a vendor tool that already returns structured data.
 """
 
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -302,6 +303,44 @@ class TestRazerAsleepGuard(unittest.TestCase):
 
     def test_device_without_a_battery_is_never_treated_as_asleep(self):
         self.assertFalse(omaperi.razer_asleep(FakeRazer(0, caps=("dpi",))))
+
+
+class TestConcurrentState(unittest.TestCase):
+    def test_simultaneous_writers_do_not_lose_each_other(self):
+        """Every status poll rewrites the cached headset description.
+
+        Unlocked, a poll that read the file before a click and wrote after it
+        silently undid the click -- an effect reverting to Static moments
+        after being chosen. Sixteen writers here; unlocked this kept roughly
+        a tenth of them.
+        """
+        import subprocess
+        import tempfile
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script = (
+            "import importlib.util, importlib.machinery, sys\n"
+            "s = importlib.util.spec_from_loader('o',"
+            " importlib.machinery.SourceFileLoader('o', sys.argv[1]))\n"
+            "m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+            "i = int(sys.argv[2])\n"
+            "[m.remember('dev:%d' % i, 'k%d' % r, r) for r in range(4)]\n"
+            "m.remember_global('g%d' % i, i)\n"
+        )
+        home = tempfile.mkdtemp()
+        env = dict(os.environ, XDG_STATE_HOME=home)
+        binary = os.path.join(root, "bin", "omaperi")
+        procs = [subprocess.Popen([sys.executable, "-c", script, binary, str(i)],
+                                  env=env, stderr=subprocess.DEVNULL)
+                 for i in range(16)]
+        for p in procs:
+            p.wait()
+
+        with open(os.path.join(home, "omaperi", "state.json")) as f:
+            state = json.load(f)
+        keys = sum(len(v) for k, v in state.items() if k.startswith("dev:"))
+        self.assertEqual(keys, 64)
+        self.assertEqual(sum(1 for k in state if k.startswith("g")), 16)
 
 
 class TestV4L2Grouping(unittest.TestCase):

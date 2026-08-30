@@ -45,6 +45,7 @@ STATE_DIR = os.path.join(
 CACHE = os.path.join(STATE_DIR, "cache.json")
 LOCK = os.path.join(STATE_DIR, "poll.lock")
 STATE = os.path.join(STATE_DIR, "state.json")
+STATE_LOCK = os.path.join(STATE_DIR, "state.lock")
 CACHE_TTL = float(os.environ.get("OMAPERI_CACHE_TTL", "10"))
 
 
@@ -71,7 +72,9 @@ def load_state():
 
 def save_state(state):
     os.makedirs(STATE_DIR, exist_ok=True)
-    tmp = STATE + ".tmp"
+    # Per-process temp name: two writers sharing one would have the loser's
+    # os.replace fail on a file the winner already moved away.
+    tmp = "%s.%d.tmp" % (STATE, os.getpid())
     with open(tmp, "w") as f:
         json.dump(state, f)
     os.replace(tmp, STATE)
@@ -87,16 +90,35 @@ def remembered(device_id, key, fallback=None):
     return load_state().get(device_id, {}).get(key, fallback)
 
 
+def update_state(mutate):
+    """Read, change and write the state file while holding a lock.
+
+    Without the lock this is a lost update waiting to happen: every status
+    poll rewrites the cached headset description, so a poll that loaded the
+    file before a click and saved after it would silently undo the click. It
+    showed up as an effect reverting to Static a moment after being chosen.
+    """
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(STATE_LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            state = load_state()
+            mutate(state)
+            save_state(state)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def remember(device_id, key, value):
-    state = load_state()
-    state.setdefault(device_id, {})[key] = value
-    save_state(state)
+    def mutate(state):
+        state.setdefault(device_id, {})[key] = value
+    update_state(mutate)
 
 
 def remember_global(key, value):
-    state = load_state()
-    state[key] = value
-    save_state(state)
+    def mutate(state):
+        state[key] = value
+    update_state(mutate)
 
 
 def control(key, label, ctype, **kw):
