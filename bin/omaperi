@@ -854,12 +854,16 @@ def orgb_sdk_device(index, d):
                         value="#%02x%02x%02x" % unrgb(packed))
             )
 
-    unsized = [z for z in zones if z["leds_max"] > z["leds_min"] and not z["leds_count"]]
+    # Only say this when nothing at all is configured. Most boards have more
+    # headers than the owner uses, and a permanent complaint about the empty
+    # ones would be noise -- a configured channel proves they know the control
+    # is there.
+    resizable = [z for z in zones if z["leds_max"] > z["leds_min"]]
     note = None
-    if unsized:
-        note = ("No LEDs configured on %s. Set each channel's LED count to "
-                "match what is plugged into it, then a colour appears."
-                % ", ".join(z["name"] for z in unsized))
+    if resizable and not any(z["leds_count"] for z in resizable):
+        note = ("No LEDs configured yet. An addressable header cannot count "
+                "what is plugged into it, so set each channel's LED count to "
+                "match its strip and a colour control appears beside it.")
 
     kind = ORGB_TYPE_KIND[d["type"]] if 0 <= d["type"] < len(ORGB_TYPE_KIND) else "other"
     return {
