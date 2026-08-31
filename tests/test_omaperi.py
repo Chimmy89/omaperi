@@ -345,7 +345,7 @@ def _screen_device():
     return {
         "id": "apexoled:hidraw6", "name": "Apex Pro TKL screen", "kind": "screen",
         "type_label": None, "backend": "apexoled", "battery": None, "note": None,
-        "controls": [omaperi.control("screen", "Show", "enum", value="clock",
+        "controls": [omaperi.control("screen", "Screen", "enum", value="clock",
                                      options=[{"value": "clock", "label": "Clock"}])],
     }
 

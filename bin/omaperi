@@ -1560,7 +1560,7 @@ def apex_devices():
             "backend": "apexoled",
             "battery": None,
             "controls": [
-                control("screen", "Show", "enum",
+                control("screen", "Screen", "enum",
                         value=remembered(dev_id, "screen", "off"),
                         options=[{"value": s, "label": SCREEN_LABELS[s]}
                                  for s in SCREENS]),
