@@ -341,6 +341,41 @@ class TestApexOled(unittest.TestCase):
             self.assertNotIn(gen3, omaperi.APEX_OLED_PIDS)
 
 
+def _screen_device():
+    return {
+        "id": "apexoled:hidraw6", "name": "Apex Pro TKL screen", "kind": "screen",
+        "type_label": None, "backend": "apexoled", "battery": None, "note": None,
+        "controls": [omaperi.control("screen", "Show", "enum", value="clock",
+                                     options=[{"value": "clock", "label": "Clock"}])],
+    }
+
+
+def _keyboard_device():
+    return {
+        "id": "openrgb:1", "name": "SteelSeries Apex Pro TKL", "kind": "keyboard",
+        "type_label": None, "backend": "openrgb", "battery": None, "note": None,
+        "controls": [omaperi.control("mode", "Mode", "enum", value="Direct",
+                                     options=[{"value": "Direct", "label": "Direct"}])],
+    }
+
+
+class TestMergeScreens(unittest.TestCase):
+    def test_screen_control_moves_onto_the_matching_keyboard(self):
+        devices = [_keyboard_device(), _screen_device()]
+        omaperi.merge_screens(devices)
+        self.assertEqual([d["kind"] for d in devices], ["keyboard"])
+        moved = devices[0]["controls"][-1]
+        self.assertEqual(moved["key"], "screen")
+        self.assertEqual(moved["backend"], "apexoled")
+        self.assertEqual(moved["device_id"], "apexoled:hidraw6")
+        self.assertEqual(moved["group"], "Screen")
+
+    def test_a_screen_with_no_matching_keyboard_stays_its_own_device(self):
+        devices = [_screen_device()]
+        omaperi.merge_screens(devices)
+        self.assertEqual([d["kind"] for d in devices], ["screen"])
+
+
 class TestConcurrentState(unittest.TestCase):
     def test_simultaneous_writers_do_not_lose_each_other(self):
         """Every status poll rewrites the cached headset description.

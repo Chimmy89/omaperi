@@ -23,7 +23,7 @@ v4l2-ctl --list-ctrls    →  ┘
 | Razer mice/keyboards | `openrazer` | battery, DPI, polling rate, sleep timer, lighting |
 | Anything OpenRGB sees | `openrgb` | mode, colour |
 | Webcams | `v4l2-ctl` | brightness, contrast, white balance, exposure, power-line frequency |
-| Apex keyboard screens | direct HID | clock or peripheral batteries on the OLED |
+| Apex keyboard OLED | direct HID | clock or peripheral batteries, shown on the keyboard's own tab |
 
 The panel is tabbed, one tab per device: a glyph, a short kind name ("Mouse",
 not the product string), and the battery where there is one. A device that
@@ -131,9 +131,9 @@ toolchain to build. The protocol was taken from
 [apex-tux](https://github.com/not-jan/apex-tux) and confirmed on an Apex Pro
 TKL.
 
-Pick **Clock** or **Battery** from the screen's tab, or **Off** to blank it.
-The frame persists until something replaces it, so a redraw happens every ten
-seconds rather than continuously.
+Pick **Clock** or **Battery** from the Screen section of the keyboard's tab, or
+**Off** to blank it. The frame persists until something replaces it, so a
+redraw happens every ten seconds rather than continuously.
 
 Only the models using the original single-report protocol are claimed. The
 Gen 3 keyboards chunk their frames differently, and supporting them without one

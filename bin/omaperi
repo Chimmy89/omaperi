@@ -1598,6 +1598,30 @@ KIND_ORDER = ["headset", "mouse", "mousemat", "keyboard", "screen", "webcam", "m
               "memory", "gpu", "storage", "other"]
 
 
+def merge_screens(devices):
+    """A keyboard's OLED is not a device of its own -- fold its control into
+    the keyboard's tab instead of giving it a second one.
+
+    The screen and the keyboard come from different backends (apexoled has
+    no way to read RGB, openrgb has no way to talk to the OLED), so the
+    control keeps its own backend/device_id; apply() and find_control() use
+    those to route it correctly once it's living on someone else's device.
+    Left standalone -- kind "screen" -- if no matching keyboard is present.
+    """
+    for screen in [d for d in devices if d["backend"] == "apexoled"]:
+        model = screen["name"].rsplit(" screen", 1)[0].lower()
+        kb = next((d for d in devices
+                   if d["kind"] == "keyboard" and model in d["name"].lower()), None)
+        if kb is None:
+            continue
+        for c in screen["controls"]:
+            c["backend"] = screen["backend"]
+            c["device_id"] = screen["id"]
+            c["group"] = "Screen"
+        kb["controls"] = kb["controls"] + screen["controls"]
+        devices.remove(screen)
+
+
 def build_document():
     devices, backends = [], []
     for name, (available, enumerate_devices, _apply) in ADAPTERS.items():
@@ -1612,6 +1636,7 @@ def build_document():
             devices.extend(enumerate_devices())
         except Exception as exc:  # one broken backend must not blank the panel
             backends[-1] = {"name": name, "available": False, "reason": str(exc)}
+    merge_screens(devices)
     devices.sort(key=lambda d: (KIND_ORDER.index(d["kind"])
                                 if d["kind"] in KIND_ORDER else 99, d["name"]))
     return {"schema": SCHEMA, "devices": devices, "backends": backends}
@@ -1726,8 +1751,16 @@ def main(argv):
         control_spec = find_control(dev, key)
         if control_spec["type"] == "readout":
             raise SystemExit("%s/%s is read-only" % (device_id, key))
-        ADAPTERS[dev["backend"]][2](dev, key, value)
-        refresh_backend(doc, dev["backend"])
+        backend = control_spec.get("backend", dev["backend"])
+        if "device_id" in control_spec:
+            # Merged in from another device (see merge_screens) -- it has no
+            # read-back, so the value just sent is the truth and there is
+            # nothing to re-enumerate.
+            ADAPTERS[backend][2]({"id": control_spec["device_id"]}, key, value)
+            control_spec["value"] = value
+        else:
+            ADAPTERS[backend][2](dev, key, value)
+            refresh_backend(doc, backend)
         write_cache(doc)
         json.dump(doc, sys.stdout)
         sys.stdout.write("\n")
