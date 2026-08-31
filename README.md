@@ -189,6 +189,13 @@ services, no udev rules, and it never edits your configuration for you.
   at-a-glance detail, at the cost of a widget that changes width when a mouse
   goes to sleep.
 
+### Low battery notifications
+
+On by default (`notifyLowBattery`). The moment any device's battery crosses
+`lowPct`, omaperi sends one desktop notification — not one per poll — and
+sends another only after that device has gone back above the threshold (a
+charge, a swap) and dropped low again.
+
 ## Usage
 
 ```bash
@@ -247,6 +254,7 @@ one registry line, and never any QML.
 
 ```bash
 python3 tests/test_omaperi.py
+node tests/test_model.js     # Model.js's own logic -- battery thresholds, etc.
 ```
 
 No hardware or network needed — they cover the two hand-written parsers.

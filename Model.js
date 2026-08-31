@@ -95,6 +95,10 @@ function anyLow(devices, lowPct) {
   return false
 }
 
+function lowEntries(devices, lowPct) {
+  return batteryEntries(devices).filter(function (e) { return isLow(e, lowPct) })
+}
+
 // Count of devices actually offering something to change, for the bar tooltip.
 function controllableCount(devices) {
   var n = 0

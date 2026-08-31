@@ -24,7 +24,8 @@
       "lowPct": 15,
       "showPercentage": true,
       "barMode": "summary",
-      "showAdvanced": false
+      "showAdvanced": false,
+      "notifyLowBattery": true
     },
     "schema": [
       {
@@ -67,6 +68,12 @@
         "type": "bool",
         "label": "Show advanced controls",
         "description": "Reveals settings that are normally handled automatically, such as the LED count of an addressable header."
+      },
+      {
+        "key": "notifyLowBattery",
+        "type": "bool",
+        "label": "Notify when a battery is low",
+        "description": "Sends a desktop notification the moment a device crosses the low battery threshold, once per time it goes low."
       }
     ]
   }

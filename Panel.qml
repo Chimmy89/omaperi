@@ -37,10 +37,12 @@ Panel {
   // Controls marked advanced are hidden by default: they are settings nobody
   // should need to know, like how many LEDs are on a fan header.
   readonly property bool showAdvanced: setting("showAdvanced", false) === true
+  readonly property bool notifyLowBattery: setting("notifyLowBattery", true) === true
 
   // ---- live state ----
   property var devices: []
   property var backends: []
+  property var profiles: []
   property string lastError: ""
   property string selectedId: ""
 
@@ -49,6 +51,25 @@ Panel {
                                             : "transparent"
 
   readonly property var batteryEntries: Model.batteryEntries(devices)
+
+  // Ids currently below lowPct, so a device only gets one notification per
+  // time it goes low rather than one every poll while it stays there.
+  property var notifiedLow: ({})
+
+  function checkLowBattery(devices) {
+    if (!root.notifyLowBattery) return
+    var low = Model.lowEntries(devices, root.lowPct)
+    var stillLow = {}
+    for (var i = 0; i < low.length; i++) {
+      var e = low[i]
+      stillLow[e.id] = true
+      if (!root.notifiedLow[e.id]) {
+        Quickshell.execDetached(["notify-send", "-a", "omaperi", "-i", "battery-caution",
+                                 e.name + " is low", e.level + "% remaining"])
+      }
+    }
+    root.notifiedLow = stillLow
+  }
 
   // ---- process plumbing ----
   // `apply` prints the refreshed document, so a set and a poll parse the same
@@ -102,7 +123,9 @@ Panel {
     root.lastError = ""
     root.devices = parsed.devices
     root.backends = parsed.backends
+    root.profiles = parsed.profiles
     root.selectedId = Model.resolveSelection(parsed.devices, root.selectedId)
+    root.checkLowBattery(parsed.devices)
   }
 
   Process {
