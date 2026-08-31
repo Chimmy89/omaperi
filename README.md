@@ -1,12 +1,17 @@
 # omaperi
 
 One Omarchy bar widget for every peripheral — headset, mouse, keyboard, webcam —
-rendering whatever each device actually exposes.
+instead of one plugin per vendor. It's the only one of these covering
+`headsetcontrol` headsets (sidetone, EQ, auto-off), and it puts that alongside
+your mouse, keyboard and webcam in one panel rather than a separate widget per
+device.
 
-Most peripheral plugins are built per vendor: one for Razer, one for OpenRGB, one
-for headsets. omaperi is built per *capability*. Each adapter asks a tool that
-already knows the device and translates the answer into one uniform document;
-the panel renders that document. Nothing in the QML knows what a Razer is.
+Most peripheral plugins are built per vendor or per device class: one for
+Razer, one for OpenRGB lighting, one for a webcam. omaperi is built per
+*capability* instead. Each adapter asks a tool that already knows the device
+and translates the answer into one uniform document; the panel renders that
+document. Nothing in the QML knows what a Razer is — which is also why adding
+a new device is one adapter function, never new panel code.
 
 ```
 headsetcontrol -o json   →  ┐
