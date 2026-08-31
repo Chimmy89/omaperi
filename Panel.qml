@@ -150,7 +150,7 @@ Panel {
       visible: root.barMode !== "pills"
       text: Model.summaryText(root.devices, root.showPercentage)
       horizontalMargin: 8.75
-      fontSize: Style.font.caption
+      fontSize: Style.bar.iconFont
       active: Model.anyLow(root.devices, root.lowPct)
       useActiveColor: true
       tooltipText: Model.tooltipFor(root.devices, root.backends)
@@ -165,7 +165,7 @@ Panel {
       visible: root.barMode === "pills"
       text: Model.glyphFor("other")
       horizontalMargin: 8.75
-      fontSize: Style.font.caption
+      fontSize: Style.bar.iconFont
       tooltipText: Model.tooltipFor(root.devices, root.backends)
       onPressed: root.toggle()
     }
@@ -180,7 +180,7 @@ Panel {
               ? modelData.glyph + " " + modelData.level + "%" + (modelData.charging ? " " : "")
               : modelData.glyph
         horizontalMargin: 8.75
-        fontSize: Style.font.caption
+        fontSize: Style.bar.iconFont
         active: Model.isLow(modelData, root.lowPct)
         useActiveColor: true
         tooltipText: modelData.name + " · " + modelData.level + "%"
