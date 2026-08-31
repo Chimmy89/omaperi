@@ -42,7 +42,8 @@ function parseDocument(text) {
   if (!doc || !doc.devices) {
     return { devices: null, backends: null, error: "no devices field" }
   }
-  return { devices: doc.devices, backends: doc.backends || [], error: null }
+  return { devices: doc.devices, backends: doc.backends || [],
+           profiles: doc.profiles || [], error: null }
 }
 
 // Devices that report a battery, in document order — these get a bar slot.

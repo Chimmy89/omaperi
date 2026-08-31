@@ -376,6 +376,36 @@ class TestMergeScreens(unittest.TestCase):
         self.assertEqual([d["kind"] for d in devices], ["screen"])
 
 
+class TestApplyProfile(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        omaperi.ADAPTERS["fake"] = (
+            lambda: (True, None), lambda: [],
+            lambda dev, key, value: self.calls.append((dev["id"], key, value)),
+        )
+        self.addCleanup(lambda: omaperi.ADAPTERS.pop("fake", None))
+
+    def _mouse(self, suffix):
+        return {"id": "fake:" + suffix, "kind": "mouse", "backend": "fake",
+                "controls": [omaperi.control("dpi", "DPI", "range", value=800)]}
+
+    def test_a_step_applies_to_every_device_of_that_kind(self):
+        doc = {"devices": [self._mouse("a"), self._mouse("b")]}
+        omaperi.apply_profile(doc, [{"kind": "mouse", "key": "dpi", "value": "1600"}])
+        self.assertEqual(sorted(self.calls),
+                         [("fake:a", "dpi", "1600"), ("fake:b", "dpi", "1600")])
+
+    def test_a_kind_with_no_device_present_is_skipped_not_fatal(self):
+        doc = {"devices": []}
+        omaperi.apply_profile(doc, [{"kind": "headset", "key": "sidetone", "value": "0"}])
+        self.assertEqual(self.calls, [])
+
+    def test_an_unknown_control_key_is_skipped_not_fatal(self):
+        doc = {"devices": [{"id": "fake:a", "kind": "mouse", "backend": "fake", "controls": []}]}
+        omaperi.apply_profile(doc, [{"kind": "mouse", "key": "dpi", "value": "1600"}])
+        self.assertEqual(self.calls, [])
+
+
 class TestConcurrentState(unittest.TestCase):
     def test_simultaneous_writers_do_not_lose_each_other(self):
         """Every status poll rewrites the cached headset description.

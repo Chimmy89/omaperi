@@ -13,6 +13,7 @@ unavailable and disappears from the panel instead of erroring.
 
   omaperi status              capability document for everything present
   omaperi apply ID KEY VALUE  set one control, print the refreshed document
+  omaperi apply-profile NAME  run a scene from ~/.config/omaperi/profiles.json
   omaperi backends            which adapters are live, and why not
   omaperi effects             write animation frames until none are wanted
                               (started automatically; exits on its own)
@@ -21,7 +22,8 @@ Document schema (version 1):
 
   {"schema": 1,
    "devices": [{"id", "name", "kind", "backend", "battery", "controls": [...]}],
-   "backends": [{"name", "available", "reason"}]}
+   "backends": [{"name", "available", "reason"}],
+   "profiles": ["name", ...]}
 
 Control types: range | enum | toggle | action | readout | color
 """
@@ -1639,7 +1641,8 @@ def build_document():
     merge_screens(devices)
     devices.sort(key=lambda d: (KIND_ORDER.index(d["kind"])
                                 if d["kind"] in KIND_ORDER else 99, d["name"]))
-    return {"schema": SCHEMA, "devices": devices, "backends": backends}
+    profiles = [p["name"] for p in load_profiles() if p.get("name")]
+    return {"schema": SCHEMA, "devices": devices, "backends": backends, "profiles": profiles}
 
 
 def cached_document(max_age=None):
@@ -1703,6 +1706,55 @@ def refresh_backend(doc, backend):
     ]
 
 
+def apply_control(doc, dev, control_spec, key, value):
+    """Route one control's value through its backend, merged or not."""
+    backend = control_spec.get("backend", dev["backend"])
+    if "device_id" in control_spec:
+        # Merged in from another device (see merge_screens) -- it has no
+        # read-back, so the value just sent is the truth and there is
+        # nothing to re-enumerate.
+        ADAPTERS[backend][2]({"id": control_spec["device_id"]}, key, value)
+        control_spec["value"] = value
+    else:
+        ADAPTERS[backend][2](dev, key, value)
+        refresh_backend(doc, backend)
+
+
+PROFILES_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "omaperi", "profiles.json"
+)
+
+
+def load_profiles():
+    """User-authored scenes -- e.g. {"name": "Gaming", "steps": [...]}.
+
+    Not shipped, not required: a profile applies one (kind, key, value) per
+    step to every device of that kind, built by hand from `omaperi status`
+    output. Absent or unparsable is the common case, not an error.
+    """
+    try:
+        with open(PROFILES_PATH) as f:
+            return json.load(f).get("profiles", [])
+    except (IOError, OSError, ValueError):
+        return []
+
+
+def apply_profile(doc, steps):
+    """Best-effort: a scene naming a device that is not plugged in right now
+    just skips that step rather than failing the whole scene.
+    """
+    for step in steps:
+        targets = [d for d in doc["devices"] if d["kind"] == step.get("kind")]
+        for dev in targets:
+            try:
+                control_spec = find_control(dev, step["key"])
+            except SystemExit:
+                continue
+            if control_spec["type"] == "readout":
+                continue
+            apply_control(doc, dev, control_spec, step["key"], step["value"])
+
+
 def find_device(doc, device_id):
     for d in doc["devices"]:
         if d["id"] == device_id:
@@ -1751,16 +1803,21 @@ def main(argv):
         control_spec = find_control(dev, key)
         if control_spec["type"] == "readout":
             raise SystemExit("%s/%s is read-only" % (device_id, key))
-        backend = control_spec.get("backend", dev["backend"])
-        if "device_id" in control_spec:
-            # Merged in from another device (see merge_screens) -- it has no
-            # read-back, so the value just sent is the truth and there is
-            # nothing to re-enumerate.
-            ADAPTERS[backend][2]({"id": control_spec["device_id"]}, key, value)
-            control_spec["value"] = value
-        else:
-            ADAPTERS[backend][2](dev, key, value)
-            refresh_backend(doc, backend)
+        apply_control(doc, dev, control_spec, key, value)
+        write_cache(doc)
+        json.dump(doc, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+
+    if command == "apply-profile":
+        if len(argv) < 3:
+            raise SystemExit("usage: omaperi apply-profile NAME")
+        name = argv[2]
+        profile = next((p for p in load_profiles() if p.get("name") == name), None)
+        if profile is None:
+            raise SystemExit("no such profile: %s" % name)
+        doc = cached_document(max_age=float("inf"))
+        apply_profile(doc, profile.get("steps", []))
         write_cache(doc)
         json.dump(doc, sys.stdout)
         sys.stdout.write("\n")

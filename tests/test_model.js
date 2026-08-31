@@ -32,4 +32,11 @@ assert.strictEqual(low[0].id, "a");
 // assert.deepStrictEqual against a host-realm [], so check length instead.
 assert.strictEqual(sandbox.lowEntries(devices, 4).length, 0, "nothing is low below every battery level");
 
+const parsed = sandbox.parseDocument(JSON.stringify({ devices: [], profiles: ["Gaming"] }));
+assert.strictEqual(parsed.profiles.length, 1);
+assert.strictEqual(parsed.profiles[0], "Gaming");
+
+const noProfiles = sandbox.parseDocument(JSON.stringify({ devices: [] }));
+assert.strictEqual(noProfiles.profiles.length, 0, "an older document with no profiles field should not throw");
+
 console.log("Model.js: ok");

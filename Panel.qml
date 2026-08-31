@@ -89,6 +89,10 @@ Panel {
     runArgs(["apply", deviceId, key, String(value)])
   }
 
+  function applyProfile(name) {
+    runArgs(["apply-profile", name])
+  }
+
   function runArgs(args) {
     if (cli.running) {
       // Never drop a click; the queue drains after the running call exits.
@@ -97,7 +101,8 @@ Panel {
     }
     // Set here rather than in apply(), so a queued command marks its own
     // control busy when it finally starts rather than when it was clicked.
-    root.busyKey = args[0] === "apply" ? (args[1] + "/" + args[2]) : ""
+    root.busyKey = args[0] === "apply" ? (args[1] + "/" + args[2])
+                 : args[0] === "apply-profile" ? ("profile/" + args[1]) : ""
     cli.command = [root.binary].concat(args)
     cli.running = true
   }
@@ -291,6 +296,46 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           wrapMode: Text.WordWrap
+        }
+
+        // ---------- scenes ----------
+        // User-authored (~/.config/omaperi/profiles.json); absent for almost
+        // everyone, so this row takes no space when there are none.
+        Flow {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.profiles.length > 0
+
+          Repeater {
+            model: root.profiles
+
+            delegate: Rectangle {
+              id: sceneBtn
+              required property string modelData
+              width: sceneLabel.implicitWidth + Style.space(20)
+              height: Style.space(32)
+              radius: Style.cornerRadius
+              color: "transparent"
+              border.width: 1
+              border.color: Color.accent
+              opacity: root.busyKey === "profile/" + sceneBtn.modelData ? 0.45 : 1.0
+
+              Text {
+                id: sceneLabel
+                anchors.centerIn: parent
+                text: sceneBtn.modelData
+                color: Color.accent
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.applyProfile(sceneBtn.modelData)
+              }
+            }
+          }
         }
 
         // ---------- one tab per device ----------

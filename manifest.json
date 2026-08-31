@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Kim (Chimmy89) <kimryen@gmail.com>",
   "license": "MIT",
-  "description": "One bar widget for every peripheral, including headsets \u2014 sidetone, EQ presets, auto-off \u2014 which no other Omarchy widget covers. Mice, keyboards and webcams join it in the same panel, each rendering whatever it actually exposes: DPI and polling rate, lighting, webcam image settings, via headsetcontrol, OpenRazer, OpenRGB and v4l2.",
+  "description": "One bar widget for every peripheral, including headsets \u2014 sidetone, EQ presets, auto-off \u2014 which no other Omarchy widget covers. Mice, keyboards and webcams join it in the same panel, each rendering whatever it actually exposes: DPI and polling rate, lighting, webcam image settings, via headsetcontrol, OpenRazer, OpenRGB and v4l2. Optional scenes apply a bundle of settings across every device in one click \u2014 something no single-vendor plugin can do.",
   "kinds": [
     "bar-widget"
   ],

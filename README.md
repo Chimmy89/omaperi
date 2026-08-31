@@ -196,6 +196,37 @@ On by default (`notifyLowBattery`). The moment any device's battery crosses
 sends another only after that device has gone back above the threshold (a
 charge, a swap) and dropped low again.
 
+### Scenes
+
+One click, several devices. Not vendor software's job — Razer Synapse cannot
+touch your headset, and headsetcontrol cannot touch your DPI — but omaperi
+already sees every device through one document, so a scene is just a list of
+steps run in order:
+
+```json
+{
+  "profiles": [
+    {
+      "name": "Gaming",
+      "steps": [
+        { "kind": "mouse", "key": "dpi", "value": "1600" },
+        { "kind": "keyboard", "key": "zone0_effect", "value": "static" },
+        { "kind": "keyboard", "key": "zone0_color", "value": "#ff0000" },
+        { "kind": "headset", "key": "sidetone", "value": "0" }
+      ]
+    }
+  ]
+}
+```
+
+Save that as `~/.config/omaperi/profiles.json` and a **Gaming** button appears
+above the device tabs. A step's `kind` and `key` come straight from
+`omaperi status`; write them by hand once, from whatever your own hardware
+actually reports. A step targeting a kind you do not have, or a key a device
+does not offer, is skipped rather than failing the whole scene — so one
+`profiles.json` can describe more hardware than any one machine has plugged
+in. No profiles file, no row: nothing to look at until you write one.
+
 ## Usage
 
 ```bash
