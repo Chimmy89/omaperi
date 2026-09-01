@@ -39,6 +39,19 @@ Panel {
   readonly property bool showAdvanced: setting("showAdvanced", false) === true
   readonly property bool notifyLowBattery: setting("notifyLowBattery", true) === true
 
+  // The bar instantiates every widget once per monitor, so an unguarded
+  // notify-send fires once per screen -- two toasts per device on a dual-head
+  // setup, three on a triple. Only the instance sitting on the compositor's
+  // first screen notifies. Falls open when the screen cannot be resolved, so
+  // an unusual setup gets a duplicate rather than silence.
+  readonly property bool notifyingInstance: {
+    var window = root.QsWindow ? root.QsWindow.window : null
+    var screen = window ? window.screen : null
+    var screens = Quickshell.screens
+    if (!screen || !screens || screens.length === 0) return true
+    return String(screen.name || "") === String(screens[0].name || "")
+  }
+
   // ---- live state ----
   property var devices: []
   property var backends: []
@@ -57,7 +70,7 @@ Panel {
   property var notifiedLow: ({})
 
   function checkLowBattery(devices) {
-    if (!root.notifyLowBattery) return
+    if (!root.notifyLowBattery || !root.notifyingInstance) return
     var low = Model.lowEntries(devices, root.lowPct)
     var stillLow = {}
     for (var i = 0; i < low.length; i++) {
