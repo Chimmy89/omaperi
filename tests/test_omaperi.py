@@ -267,6 +267,25 @@ class TestRazerSleepingBattery(unittest.TestCase):
         self.assertNotIn("Asleep", device["note"] or "")
 
 
+class TestRazerWiredMouse(unittest.TestCase):
+    def test_missing_poll_rate_list_falls_back_instead_of_dropping_every_device(self):
+        # A wired DeathAdder V3 Pro has poll_rate but not supported_poll_rates,
+        # and openrazer raises for the missing one instead of omitting it.
+        # That exception used to take every Razer device out of the bar.
+        class Wired(FakeRazer):
+            @property
+            def supported_poll_rates(self):
+                raise NotImplementedError()
+
+            @supported_poll_rates.setter
+            def supported_poll_rates(self, _):
+                pass
+
+        device = omaperi.razer_device(Wired(98, caps=("battery", "poll_rate")))
+        rates = [c for c in device["controls"] if c["key"] == "poll_rate"][0]
+        self.assertEqual([o["value"] for o in rates["options"]], [125, 500, 1000])
+
+
 class TestHeadsetEqualizer(unittest.TestCase):
     DEVICE = {
         "device": "Test", "id_vendor": "0x1", "id_product": "0x2",

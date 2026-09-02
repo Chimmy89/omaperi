@@ -412,7 +412,9 @@ def razer_device(d):
         )
 
     if d.has("poll_rate"):
-        rates = getattr(d, "supported_poll_rates", None) or [125, 500, 1000]
+        # openrazer raises NotImplementedError rather than omitting the property
+        # (the wired DeathAdder V3 Pro), so gate on has(), not getattr.
+        rates = (d.supported_poll_rates if d.has("supported_poll_rates") else None) or [125, 500, 1000]
         controls.append(
             control("poll_rate", "Polling rate", "enum", unit="Hz",
                     options=[{"value": r, "label": "%d Hz" % r} for r in rates],
